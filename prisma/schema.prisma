@@ -1,0 +1,287 @@
+// Shared database, shared schema. Every tenant-owned table carries `tenantId`
+// and is protected by Row-Level Security (see prisma/migrations/*_rls).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  // Runtime connection: the non-superuser `app_user` role (RLS is enforced).
+  url       = env("DATABASE_URL")
+  // Migrations run as the schema owner.
+  directUrl = env("DIRECT_URL")
+}
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum ContentCategory {
+  GENERAL
+  ADULT
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  EDITOR
+}
+
+enum DomainStatus {
+  PENDING
+  VERIFIED
+  ACTIVE
+  FAILED
+}
+
+enum VideoStatus {
+  UPLOADING
+  IMPORTING
+  PROCESSING
+  READY
+  FAILED
+  BLOCKED
+}
+
+enum Visibility {
+  PUBLIC
+  UNLISTED
+  PRIVATE
+}
+
+enum IngestMethod {
+  DIRECT
+  URL
+}
+
+enum AdMode {
+  PLATFORM
+  CUSTOM
+}
+
+enum ReportType {
+  ABUSE
+  DMCA
+}
+
+enum ReportStatus {
+  OPEN
+  ACTIONED
+  DISMISSED
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELED
+}
+
+// ---------------------------------------------------------------- global tables
+
+model User {
+  id            String       @id @default(cuid())
+  email         String       @unique
+  passwordHash  String
+  name          String?
+  isSuperAdmin  Boolean      @default(false)
+  termsAcceptedAt DateTime
+  createdAt     DateTime     @default(now())
+  memberships   Membership[]
+}
+
+model Plan {
+  id            String   @id @default(cuid())
+  key           String   @unique // "free" | "premium" — entitlements() keys off this
+  name          String
+  stripePriceId String?
+  tenants       Tenant[]
+  subscriptions Subscription[]
+}
+
+// ---------------------------------------------------------------- tenant tables
+
+model Tenant {
+  id              String          @id @default(cuid())
+  slug            String          @unique
+  name            String
+  planId          String
+  status          TenantStatus    @default(ACTIVE)
+  contentCategory ContentCategory @default(GENERAL)
+  templateId      String          @default("classic-grid")
+  theme           Json            @default("{}")
+  features        Json            @default("{}")
+  seo             Json            @default("{}") // site-wide SEO settings (see src/lib/seo.ts)
+  logoUrl         String?
+  faviconUrl      String?
+  createdAt       DateTime        @default(now())
+
+  plan          Plan           @relation(fields: [planId], references: [id])
+  memberships   Membership[]
+  subscriptions Subscription[]
+  domains       CustomDomain[]
+  videos        Video[]
+  renditions    VideoRendition[]
+  categories    Category[]
+  adConfig      AdConfig?
+  storageUsage  StorageUsage?
+  reports       Report[]
+  auditLogs     AuditLog[]
+}
+
+model Membership {
+  id       String @id @default(cuid())
+  tenantId String
+  userId   String
+  role     Role
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId])
+  @@index([userId])
+}
+
+model Subscription {
+  id                   String             @id @default(cuid())
+  tenantId             String
+  planId               String
+  status               SubscriptionStatus @default(ACTIVE)
+  providerCustomerId   String?
+  providerSubscriptionId String?
+  currentPeriodEnd     DateTime?
+  createdAt            DateTime           @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  plan   Plan   @relation(fields: [planId], references: [id])
+
+  @@index([tenantId])
+}
+
+model CustomDomain {
+  id                String       @id @default(cuid())
+  tenantId          String
+  hostname          String       @unique
+  status            DomainStatus @default(PENDING)
+  verificationToken String
+  tlsStatus         String       @default("none")
+  createdAt         DateTime     @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+model Category {
+  id       String @id @default(cuid())
+  tenantId String
+  name     String
+  slug     String
+  seo      Json   @default("{}")
+
+  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  videos Video[]
+
+  @@unique([tenantId, slug])
+}
+
+model Video {
+  id                String       @id @default(cuid())
+  tenantId          String
+  categoryId        String?
+  title             String
+  description       String?
+  status            VideoStatus  @default(UPLOADING)
+  visibility        Visibility   @default(PRIVATE)
+  durationSec       Int?
+  hlsPath           String?
+  thumbnailPath     String?
+  sizeBytes         BigInt?
+  views             Int          @default(0)
+  featured          Boolean      @default(false)
+  seo               Json         @default("{}") // per-video SEO overrides
+  ingestMethod      IngestMethod
+  sourceUrl         String?
+  importProgress    Int          @default(0) // percent; live byte counts live in Redis
+  failureReason     String?
+  rightsConfirmedAt DateTime?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  tenant     Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  category   Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  renditions VideoRendition[]
+  reports    Report[]
+
+  @@index([tenantId, status, createdAt])
+}
+
+model VideoRendition {
+  id           String @id @default(cuid())
+  tenantId     String
+  videoId      String
+  height       Int // 360 | 720 | 1080
+  bitrateKbps  Int
+  playlistPath String
+  sizeBytes    BigInt @default(0)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  video  Video  @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@unique([videoId, height])
+}
+
+model AdConfig {
+  id          String  @id @default(cuid())
+  tenantId    String  @unique
+  mode        AdMode  @default(PLATFORM)
+  vastTagUrl  String?
+  htmlSnippet String?
+  enabled     Boolean @default(true)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model StorageUsage {
+  id            String @id @default(cuid())
+  tenantId      String @unique
+  bytesUsed     BigInt @default(0)
+  bytesReserved BigInt @default(0)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model Report {
+  id            String       @id @default(cuid())
+  tenantId      String
+  videoId       String
+  type          ReportType
+  reason        String
+  reporterEmail String?
+  reporterIp    String?
+  status        ReportStatus @default(OPEN)
+  createdAt     DateTime     @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  video  Video  @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status])
+}
+
+// tenantId is nullable for platform-level actions; those rows are visible
+// only to the platform (RLS bypass) context.
+model AuditLog {
+  id        String   @id @default(cuid())
+  tenantId  String?
+  userId    String?
+  action    String
+  target    String?
+  ip        String?
+  metadata  Json     @default("{}")
+  createdAt DateTime @default(now())
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt])
+}
