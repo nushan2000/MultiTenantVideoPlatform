@@ -3,6 +3,7 @@ import { cache } from "react";
 import { resolveAds } from "./ads";
 import { tenantDb } from "./db/client";
 import { videoPath } from "./handles";
+import { PAGE_SIZE } from "./pagination";
 import type { ResolvedTenant } from "./tenancy/resolve";
 import type { StoreVideo } from "@/templates/types";
 
@@ -20,13 +21,52 @@ export const toStoreVideo = (v: Row): StoreVideo => ({
 const include = { category: { select: { name: true } } } as const;
 const listed = { status: "READY", visibility: "PUBLIC" } as const;
 
-export async function homeData(t: ResolvedTenant) {
+const skip = (page: number) => (page - 1) * PAGE_SIZE;
+
+export async function homeData(t: ResolvedTenant, page = 1) {
   const db = tenantDb(t.id);
-  const [featured, latest] = await Promise.all([
-    db.video.findMany({ where: { ...listed, featured: true }, orderBy: { createdAt: "desc" }, take: 4, include }),
-    db.video.findMany({ where: { ...listed }, orderBy: { createdAt: "desc" }, take: 24, include }),
+  const [featured, latest, total] = await Promise.all([
+    page === 1 ? db.video.findMany({ where: { ...listed, featured: true }, orderBy: { createdAt: "desc" }, take: 4, include }) : Promise.resolve([]),
+    db.video.findMany({ where: { ...listed }, orderBy: { createdAt: "desc" }, skip: skip(page), take: PAGE_SIZE, include }),
+    db.video.count({ where: { ...listed } }),
   ]);
-  return { featured: featured.map(toStoreVideo), latest: latest.map(toStoreVideo) };
+  return { featured: featured.map(toStoreVideo), latest: latest.map(toStoreVideo), total };
+}
+
+/** "Trending": most viewed first (all-time views; ties broken by newest). */
+export async function trendingData(t: ResolvedTenant, page = 1) {
+  const db = tenantDb(t.id);
+  const [rows, total] = await Promise.all([
+    db.video.findMany({ where: { ...listed }, orderBy: [{ views: "desc" }, { createdAt: "desc" }], skip: skip(page), take: PAGE_SIZE, include }),
+    db.video.count({ where: { ...listed } }),
+  ]);
+  return { videos: rows.map(toStoreVideo), total };
+}
+
+export async function tagData(t: ResolvedTenant, tag: string, page = 1) {
+  const db = tenantDb(t.id);
+  const where = { ...listed, tags: { has: tag } };
+  const [rows, total] = await Promise.all([
+    db.video.findMany({ where, orderBy: { createdAt: "desc" }, skip: skip(page), take: PAGE_SIZE, include }),
+    db.video.count({ where }),
+  ]);
+  return { videos: rows.map(toStoreVideo), total };
+}
+
+export async function categoryVideos(t: ResolvedTenant, categoryId: string, page = 1) {
+  const db = tenantDb(t.id);
+  const where = { ...listed, categoryId };
+  const [rows, total] = await Promise.all([
+    db.video.findMany({ where, orderBy: { createdAt: "desc" }, skip: skip(page), take: PAGE_SIZE, include }),
+    db.video.count({ where }),
+  ]);
+  return { videos: rows.map(toStoreVideo), total };
+}
+
+/** Category chips for the home/listing pages (most populated first). */
+export async function categoryChips(t: ResolvedTenant, limit = 12) {
+  const cats = await tenantDb(t.id).category.findMany({ select: { slug: true, name: true, _count: { select: { videos: { where: { status: "READY", visibility: "PUBLIC" } } } } } });
+  return cats.filter((c) => c._count.videos > 0).sort((a, b) => b._count.videos - a._count.videos).slice(0, limit).map((c) => ({ title: c.name, href: `/c/${c.slug}` }));
 }
 
 export async function searchVideos(t: ResolvedTenant, q: string) {

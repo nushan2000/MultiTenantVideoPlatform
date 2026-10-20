@@ -3,7 +3,7 @@
 Shopify-style: people register, create a video site from a template, and publish it on a free subdomain or (Premium) their own domain.
 Everything runs on your own server: Postgres, Redis, S3-compatible storage (MinIO), FFmpeg workers, Caddy. **No Docker, no cloud services.**
 
-Status: all 7 phases implemented. See [ARCHITECTURE.md](ARCHITECTURE.md) for design, [docs/DEPLOY-VPS.md](docs/DEPLOY-VPS.md) for putting it on a VPS.
+Status: all 7 phases implemented, plus YouTube-style storefront pages and a full SEO toolkit. See [ARCHITECTURE.md](ARCHITECTURE.md) for design, [docs/DEPLOY-VPS.md](docs/DEPLOY-VPS.md) for putting it on a VPS.
 
 ## Local development (no Docker)
 
@@ -54,6 +54,7 @@ pnpm typecheck
 | `import-download.test.ts` | mocked slow, oversized (declared and streamed), redirecting, redirect-to-internal, non-video, 4xx/5xx servers |
 | `pipeline.test.ts` | direct multipart upload to storage, real FFmpeg HLS transcode, quota reservation under concurrency, URL import to READY |
 | `entitlements.test.ts` | Free/Premium limits |
+| `pages-seo.test.ts` | Markdown sanitiser, system pages, tags/chapters/captions, CSV, contrast, crawler verification, custom meta/JSON-LD, sitemap builders, `Page` isolation |
 | `seo.test.ts` | SEO schemas/sanitisation, URL-handle rules, redirect history, per-tenant handle resolution, health scoring |
 | `platform.test.ts` | custom-domain lifecycle + downgrade, Caddy `ask` approval, ad rules, CSS validation, Stripe webhooks |
 

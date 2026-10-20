@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { route } from "@/lib/api";
-import { tenantDb } from "@/lib/db/client";
+import { tenantTx } from "@/lib/db/client";
 import { clientIp } from "@/lib/rate-limit";
 import { redis } from "@/lib/redis";
 import { requestTenant } from "@/lib/storefront";
@@ -17,9 +17,9 @@ export const POST = route(async (req) => {
   } catch {
     return { counted: false };
   }
-  const r = await tenantDb(tenant.id).video.updateMany({
-    where: { id: videoId, status: "READY", visibility: { in: ["PUBLIC", "UNLISTED"] } },
-    data: { views: { increment: 1 } },
-  });
-  return { counted: r.count > 0 };
+  // Raw SQL on purpose: the ORM's @updatedAt would bump "updatedAt" on every view and destroy the sitemap's <lastmod> signal.
+  const n = await tenantTx(tenant.id, (tx) =>
+    tx.$executeRaw`UPDATE "Video" SET views = views + 1 WHERE id = ${videoId} AND "tenantId" = ${tenant.id} AND status = 'READY' AND visibility IN ('PUBLIC','UNLISTED')`,
+  );
+  return { counted: n > 0 };
 });

@@ -15,6 +15,7 @@ export const TENANT_KEY: Record<string, "tenantId" | "id"> = {
   StorageUsage: "tenantId",
   Report: "tenantId",
   AuditLog: "tenantId",
+  Page: "tenantId",
 };
 
 type AnyArgs = Record<string, any>;

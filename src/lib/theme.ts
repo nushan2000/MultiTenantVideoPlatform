@@ -28,6 +28,8 @@ export const featuresSchema = z.object({
   ageGate: z.boolean().default(false),
   downloads: z.boolean().default(false),
   noindex: z.boolean().default(false),
+  /** Let verified search-engine crawlers read content behind the age gate (needed for gated sites to be indexed). */
+  crawlerAccess: z.boolean().default(true),
 });
 export type Features = z.infer<typeof featuresSchema>;
 
@@ -75,3 +77,23 @@ export const THEME_PRESETS: Record<string, { label: string; theme: Partial<Theme
   sunset: { label: "Sunset", theme: { primaryColor: "#ea580c", bgColor: "#fff7ed", textColor: "#2b1608" } },
 };
 export const presetTheme = (key: string): Theme => parseTheme({ ...(THEME_PRESETS[key]?.theme ?? THEME_PRESETS.classic.theme) });
+
+// ---------------------------------------------------------------- accessibility: colour contrast (WCAG 2.x)
+const lin = (c: number) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+function luminance(hex: string): number {
+  const n = parseInt(hex.slice(1), 16);
+  return 0.2126 * lin(((n >> 16) & 255) / 255) + 0.7152 * lin(((n >> 8) & 255) / 255) + 0.0722 * lin((n & 255) / 255);
+}
+export function contrastRatio(a: string, b: string): number {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+/** Readable text matters for rankings (page experience) and for users: reject unreadable custom palettes. */
+export function checkThemeContrast(t: Pick<Theme, "primaryColor" | "bgColor" | "textColor">): string | null {
+  const body = contrastRatio(t.textColor, t.bgColor);
+  if (body < 4.5) return `Text and background colours are too similar (contrast ${body.toFixed(1)}:1, need at least 4.5:1).`;
+  const accent = contrastRatio(t.primaryColor, t.bgColor);
+  if (accent < 3) return `The primary colour is hard to see on the background (contrast ${accent.toFixed(1)}:1, need at least 3:1).`;
+  return null;
+}

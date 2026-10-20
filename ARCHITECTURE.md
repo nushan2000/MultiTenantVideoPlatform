@@ -98,6 +98,33 @@ URLs, locale/handle formats. Fallbacks are automatic (title = name, description 
 an embeddable `/embed/<id>` player (noindex, the only framable route) used as `video:player_loc`, internal search is `noindex,follow`, a site-wide noindex always wins,
 platform pages have their own sitemap/robots/JSON-LD and the dashboard/admin are noindex.
 
+## Storefront structure (YouTube-style) and pages
+
+**Navigation:** header (logo, search, Home / Trending / Categories / About), category chips on home and lists, a four-column footer (Explore, Help, Legal, More), breadcrumbs,
+a skip link, a branded 404 and an HTML `/sitemap`. **Routes:** `/`, `/trending`, `/categories`, `/c/<handle>`, `/tag/<tag>`, `/search`, `/v/<handle>`, `/embed/<id>`, `/<page-slug>`.
+Lists are paginated (`?page=N`, 24 per page) with real `<a>` links; `rel=prev/next` and the self-canonical for page 2+ are emitted as `<link>` tags by `PaginationHead`
+(Next's metadata API would strip `?page=N`).
+
+**Watch page:** player with captions (`<track>`), chapters (click to seek, `?t=` deep links), Share/Embed (copy link, embed code, social), expandable description (full text always in the HTML),
+tags, transcript, related videos by shared tag/category, report form.
+
+**Pages (`Page` table + `Tenant.profile`).** Every site gets the sections a video site is expected to have as *generated defaults*: About, Contact, FAQ, Privacy Policy, Terms of Service,
+Copyright/DMCA, Cookie Policy, Community Guidelines, and for adult sites 18 U.S.C. 2257 and Parental Controls. Text is generated from the owner's *Business details* (legal name, email, address,
+DMCA agent, 2257 custodian) and degrades gracefully when empty. Owners can edit any of them (a row overrides the default; delete = reset), hide the optional ones, and create unlimited custom pages
+(Markdown, sanitised on render, live preview, own search listing, 50 max). Privacy, Terms, DMCA, Cookies, Contact (and 2257 / Parental) are **mandatory**: editable but never hidden.
+Custom slugs cannot collide with routes or system slugs. Legal/help pages stay readable *before* the age gate. The platform's own marketing site has the same set (`/about /contact /privacy /dmca /cookies /terms /aup`).
+These are templates, not legal advice; the dashboard says so.
+
+### SEO completions (technical)
+- **Sitemaps:** `/sitemap.xml` is an index -> `/sitemaps/main.xml` (home, sections, categories, tags with 2+ videos, published pages) + `/sitemaps/videos-N.xml` (1,000 videos each, Google video + image extensions, tags, category). `lastmod` is reliable because view counting no longer touches `updatedAt`.
+- **IndexNow** on video ready / edit / page change (`INDEXNOW_KEY`); key file served on every host. **RSS/MRSS** `/feed.xml`; **web manifest** + `theme-color` + apple icon per site.
+- **Video rich results:** `VideoObject` with `contentUrl` (HLS), 1280px thumbnails (`thumb-lg.jpg`, also `og:image` and the player poster, preloaded for LCP), `transcript`, `caption`, `hasPart` Clips from chapters, `embedUrl`, view count.
+- **Text for search engines:** captions (WebVTT/SRT upload), transcript, chapters, tags (+ `/tag/<tag>` pages, noindex when thin), better default titles from filenames.
+- **Crawl hygiene:** robots.txt blocks `/api`, `/search`, `/embed` and HLS; `X-Robots-Tag: noindex` on HLS files; internal search is `noindex,follow`; unlisted/noindex pages are left out of sitemaps; HSTS in production.
+- **Canonicalisation:** the free subdomain 308-redirects to an ACTIVE custom domain (path + query kept); one canonical origin everywhere.
+- **Age gate vs indexing:** verified search-engine crawlers (forward-confirmed reverse DNS, not just a User-Agent) may read gated content when the owner leaves *crawler access* on (default); spoofed crawlers stay gated.
+- **Owner controls:** custom `<meta>` tags and JSON-LD per page/site (validated, platform-managed names refused, scripts can't run), bulk title/description editing via CSV export/import, duplicate-title detection, social-card preview, theme contrast check (WCAG 4.5:1 text, 3:1 accent).
+
 ## Trust & safety
 Terms/AUP acceptance stored at signup; per-tenant `contentCategory`. Adult tenants: mandatory age-gate (enforced in every page, not just the
 layout, because Next streams page payloads), RTA meta, optional noindex, ad networks that disallow adult content blocked. Abuse/DMCA form on every
@@ -107,7 +134,8 @@ Rate limits (Redis, fail-open): login, register, upload-init, import, report, sl
 Storefront CSP + `nosniff`; tenant ad HTML is sanitised (no scripts, sandboxed iframes); custom CSS is allow-list validated.
 
 ## Known gaps / follow-ups
-- **SEO**: a `lang` per page comes from the site locale only (no per-video language), and there is no manual redirect manager (redirects are created automatically when a handle changes).
+- **SEO**: page language comes from the site locale only; no hreflang/multi-language; no manual redirect manager (redirects are created when a handle changes); deleted videos return 404 not 410; automatic transcription (Whisper) and Search Console API integration are not built (owners can upload captions/transcripts and verify via meta tag); a streaming 404 is delivered through the client payload (status + noindex are correct).
+- **Contact page** shows the owner's email/address; there is no built-in contact form (needs a mail service).
 - **Comments and likes**: toggles exist but no tables (needs a data-model addition: ask first). **Downloads**: toggle forced off.
 - **Import worker network isolation**: the worker reads Postgres/Redis directly, so it cannot be fully cut off from them. The SSRF guard is the main
   defence; add firewall rules (see docs/DEPLOY-VPS.md). A stricter design has the worker call an internal API instead of the DB.

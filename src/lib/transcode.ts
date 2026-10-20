@@ -8,6 +8,7 @@ import { entitlements } from "./entitlements";
 import { getEnv } from "./env";
 import { logger } from "./logger";
 import { settleQuota } from "./quota";
+import { notifyVideo } from "./seo-notify";
 import { getContentScanner } from "./safety/scanner";
 import { findObjectByPrefix, keys, presignGet, putObject } from "./storage";
 
@@ -147,6 +148,7 @@ export async function processVideo(tenantId: string, videoId: string): Promise<P
 
     const thumbAt = Math.min(info.durationSec * 0.1, 10);
     await run(ffmpegPath(), ["-y", "-ss", String(thumbAt), "-i", inputUrl, "-frames:v", "1", "-vf", "scale=640:-2", "-q:v", "3", path.join(work, "thumb.jpg")]);
+    await run(ffmpegPath(), ["-y", "-ss", String(thumbAt), "-i", inputUrl, "-frames:v", "1", "-vf", "scale=1280:-2", "-q:v", "3", path.join(work, "thumb-lg.jpg")]);
 
     const aspect = info.width / info.height;
     const master = ["#EXTM3U", "#EXT-X-VERSION:3"];
@@ -171,6 +173,9 @@ export async function processVideo(tenantId: string, videoId: string): Promise<P
     const thumb = await readFile(path.join(work, "thumb.jpg"));
     derivedBytes += thumb.length;
     await putObject(keys.thumb(tenantId, videoId), thumb, "image/jpeg");
+    const thumbLg = await readFile(path.join(work, "thumb-lg.jpg"));
+    derivedBytes += thumbLg.length;
+    await putObject(keys.thumbLarge(tenantId, videoId), thumbLg, "image/jpeg");
 
     const finalBytes = source.size + derivedBytes;
     await settleQuota(tenantId, videoId, finalBytes, async (tx) => {
@@ -191,6 +196,7 @@ export async function processVideo(tenantId: string, videoId: string): Promise<P
       });
     });
     logger.info({ tenantId, videoId, renditions: ladder.map((r) => r.height), durationSec: info.durationSec }, "video ready");
+    void notifyVideo(tenantId, videoId); // IndexNow: new public video is announced to search engines immediately
     return "ready";
   } finally {
     await rm(work, { recursive: true, force: true }).catch(() => {});

@@ -14,6 +14,7 @@ export type ResolvedTenant = {
   theme: unknown;
   features: unknown;
   seo: unknown;
+  profile: unknown;
   logoUrl: string | null;
   faviconUrl: string | null;
 };
@@ -28,7 +29,7 @@ async function lookup(host: string): Promise<ResolvedTenant | null> {
 
   const select = {
     id: true, slug: true, name: true, contentCategory: true, templateId: true,
-    theme: true, features: true, seo: true, logoUrl: true, faviconUrl: true,
+    theme: true, features: true, seo: true, profile: true, logoUrl: true, faviconUrl: true,
     plan: { select: { key: true } },
   } as const;
 

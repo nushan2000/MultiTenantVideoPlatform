@@ -27,7 +27,9 @@ async function resolveVast(tagUrl: string, depth = 0, acc: Pick<VastAd, "impress
 
 const ping = (urls: string[]) => urls.forEach((u) => void (new Image().src = u));
 
-export default function HlsPlayer({ src, poster, videoId, vastTagUrl }: { src: string; poster?: string | null; videoId: string; vastTagUrl?: string | null }) {
+export type Track = { lang: string; label: string; src: string };
+
+export default function HlsPlayer({ src, poster, videoId, vastTagUrl, tracks = [] }: { src: string; poster?: string | null; videoId: string; vastTagUrl?: string | null; tracks?: Track[] }) {
   const ref = useRef<HTMLVideoElement>(null);
   const [ad, setAd] = useState<{ skippable: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -87,16 +89,30 @@ export default function HlsPlayer({ src, poster, videoId, vastTagUrl }: { src: s
       }
     };
 
+    // chapters / ?t=90 deep links: jump to a time (works before or after playback starts)
+    const seek = (sec: number) => {
+      const go = () => { video.currentTime = sec; void video.play().catch(() => {}); };
+      if (video.readyState >= 1) go();
+      else video.addEventListener("loadedmetadata", go, { once: true });
+    };
+    const onSeek = (e: Event) => seek(Number((e as CustomEvent).detail) || 0);
+    window.addEventListener("sf-seek", onSeek);
+    const t = Number(new URLSearchParams(window.location.search).get("t"));
+    if (t > 0) video.addEventListener("loadedmetadata", () => { video.currentTime = t; }, { once: true });
+
     void playPreroll();
     return () => {
       cancelled = true;
+      window.removeEventListener("sf-seek", onSeek);
       hls?.destroy();
     };
   }, [src, videoId, vastTagUrl]);
 
   return (
     <>
-      <video ref={ref} poster={poster ?? undefined} playsInline preload="metadata" controls={!ad} />
+      <video ref={ref} poster={poster ?? undefined} playsInline preload="metadata" controls={!ad}>
+        {tracks.map((t, i) => <track key={t.lang} kind="subtitles" srcLang={t.lang} label={t.label} src={t.src} default={i === 0} />)}
+      </video>
       {ad && (
         <div style={{ position: "absolute", top: 8, left: 8, right: 8, display: "flex", justifyContent: "space-between", pointerEvents: "none" }}>
           <span style={{ background: "rgba(0,0,0,.7)", color: "#fff", padding: "2px 8px", borderRadius: 4, fontSize: 12 }}>Ad</span>

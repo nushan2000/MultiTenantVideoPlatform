@@ -32,7 +32,7 @@ async function main() {
     if (existing) return existing;
     return platformDb.tenant.create({
       data: {
-        slug, name, planId, theme, features: { categories: true, search: true }, ...extra,
+        slug, name, planId, theme, features: { categories: true, search: true }, profile: { contactEmail: `hello@${slug}.example`, legalName: name }, ...extra,
         memberships: { create: { userId: owner.id, role: "OWNER" } },
         adConfig: { create: { mode: "PLATFORM" } },
         storageUsage: { create: {} },
@@ -56,7 +56,8 @@ async function main() {
         execFileSync(ffmpegPath(), ["-y", "-f", "lavfi", "-i", `${src}=size=1280x720:rate=24`, "-f", "lavfi", "-i", `sine=frequency=${hz}`, "-t", "6", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", file], { stdio: "ignore" });
         const buf = readFileSync(file);
         const video = await platformDb.video.create({
-          data: { tenantId: tenant.id, title, description: `Sample video ${i + 1}`, status: "PROCESSING", ingestMethod: "DIRECT", visibility: "PUBLIC", featured: i === 0, categoryId: cat.id, sizeBytes: BigInt(buf.length) },
+          data: { tenantId: tenant.id, title, description: `Sample video ${i + 1}`, status: "PROCESSING", ingestMethod: "DIRECT", visibility: "PUBLIC", featured: i === 0, categoryId: cat.id, sizeBytes: BigInt(buf.length),
+            tags: ["samples", i === 0 ? "demo" : "test"], chapters: [{ start: 0, title: "Start" }, { start: 3, title: "Middle" }], transcript: `Sample transcript for ${title}.` },
         });
         await reserveQuota(tenant.id, buf.length, limit);
         await putObject(keys.source(tenant.id, video.id, "mp4"), buf, "video/mp4");

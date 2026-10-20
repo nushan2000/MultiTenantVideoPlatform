@@ -26,8 +26,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ path: st
   } else if (kind === "videos") {
     const [videoId, area, ...file] = rest;
     const isHls = area === "hls" && file.length >= 1;
-    const isThumb = area === "thumb.jpg" && file.length === 0;
-    if (!videoId || !(isHls || isThumb)) return notFound();
+    const isThumb = (area === "thumb.jpg" || area === "thumb-lg.jpg") && file.length === 0;
+    const isCaption = area === "captions" && file.length === 1 && /^[a-z]{2,3}(-[A-Za-z0-9]{2,8})?\.vtt$/.test(file[0]);
+    if (!videoId || !(isHls || isThumb || isCaption)) return notFound();
 
     const video = await platformDb.video.findFirst({
       where: { id: videoId, tenantId },
@@ -46,12 +47,20 @@ export async function GET(req: Request, { params }: { params: Promise<{ path: st
 
   const range = req.headers.get("range") ?? undefined;
   try {
-    const obj = await getObject(key, range);
+    // Videos processed before the large poster existed: fall back to the 640px thumbnail instead of a 404 (broken og:image).
+    let obj;
+    try {
+      obj = await getObject(key, range);
+    } catch (e: any) {
+      if (key.endsWith("/thumb-lg.jpg") && (e?.$metadata?.httpStatusCode === 404 || e?.name === "NoSuchKey")) obj = await getObject(key.replace("thumb-lg.jpg", "thumb.jpg"), range);
+      else throw e;
+    }
     const headers = new Headers({
       "content-type": obj.ContentType ?? "application/octet-stream",
       "cache-control": key.endsWith(".m3u8") && cache.startsWith("public") ? "public, max-age=30" : cache,
       "accept-ranges": "bytes",
       "x-content-type-options": "nosniff",
+      ...(key.includes("/hls/") ? { "x-robots-tag": "noindex, nofollow" } : {}),
     });
     if (obj.ContentLength != null) headers.set("content-length", String(obj.ContentLength));
     if (obj.ContentRange) headers.set("content-range", obj.ContentRange);

@@ -113,6 +113,7 @@ model Tenant {
   theme           Json            @default("{}")
   features        Json            @default("{}")
   seo             Json            @default("{}") // site-wide SEO settings (see src/lib/seo.ts)
+  profile         Json            @default("{}") // business details used by the legal pages (see src/lib/pages/profile.ts)
   logoUrl         String?
   faviconUrl      String?
   createdAt       DateTime        @default(now())
@@ -124,6 +125,7 @@ model Tenant {
   videos        Video[]
   renditions    VideoRendition[]
   categories    Category[]
+  pages         Page[]
   adConfig      AdConfig?
   storageUsage  StorageUsage?
   reports       Report[]
@@ -201,6 +203,10 @@ model Video {
   views             Int          @default(0)
   featured          Boolean      @default(false)
   seo               Json         @default("{}") // per-video SEO overrides
+  tags              String[]     @default([]) // slugified tags -> /tag/<tag> pages
+  transcript        String?      // plain text shown on the watch page (SEO text content)
+  captions          Json         @default("[]") // [{lang,label,path}] WebVTT files in storage
+  chapters          Json         @default("[]") // [{start,title}] key moments
   ingestMethod      IngestMethod
   sourceUrl         String?
   importProgress    Int          @default(0) // percent; live byte counts live in Redis
@@ -284,4 +290,27 @@ model AuditLog {
   tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, createdAt])
+}
+
+// Storefront pages. SYSTEM pages (about, contact, privacy, terms, dmca, ...) exist by default as generated text and
+// become a row only when the owner customises them (systemKey set). CUSTOM pages are owner-created (systemKey null).
+model Page {
+  id        String   @id @default(cuid())
+  tenantId  String
+  slug      String
+  title     String
+  content   String   @default("") // Markdown (sanitised to HTML on render)
+  systemKey String?
+  published Boolean  @default(true)
+  inFooter  Boolean  @default(true)
+  position  Int      @default(0)
+  seo       Json     @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, slug])
+  @@unique([tenantId, systemKey])
+  @@index([tenantId, published])
 }

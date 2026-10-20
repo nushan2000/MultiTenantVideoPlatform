@@ -66,7 +66,7 @@ export default async function SeoHub({ params, searchParams }: { params: Promise
 
       <HomeSeo tenantId={a.tenant.id} origin={origin} siteName={a.tenant.name} homeTitle={seo.homeTitle ?? ""} homeDescription={seo.homeDescription ?? ""} noindex={features.noindex} />
 
-      <PagesTable rows={rows} origin={origin} siteName={a.tenant.name} template={template} slug={slug} />
+      <PagesTable rows={rows} origin={origin} siteName={a.tenant.name} template={template} slug={slug} tenantId={a.tenant.id} />
 
       <SiteSettings
         tenantId={a.tenant.id} siteName={a.tenant.name} faviconUrl={a.tenant.faviconUrl}
@@ -74,6 +74,7 @@ export default async function SeoHub({ params, searchParams }: { params: Promise
           titleTemplate: seo.titleTemplate ?? "", keywords: seo.keywords.join(", "), organizationName: seo.organizationName ?? "", locale: seo.locale ?? "",
           twitterHandle: seo.twitterHandle ?? "", googleVerification: seo.googleVerification ?? "", bingVerification: seo.bingVerification ?? "",
           socials: seo.socials.join("\n"), ogImage: seo.ogImage ?? "",
+          extraMeta: seo.extraMeta.map((m) => `${m.name}: ${m.content}`).join("\n"), jsonLd: seo.jsonLd ?? "",
         }}
       />
     </>

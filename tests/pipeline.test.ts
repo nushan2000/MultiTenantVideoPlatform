@@ -89,6 +89,7 @@ describe("Method A: direct multipart upload -> shared processing", () => {
     expect(text).toContain("720p/index.m3u8");
     expect(text).not.toContain("1080p");
     expect(await headObject(v!.thumbnailPath!)).not.toBeNull();
+    expect(await headObject(keys.thumbLarge(tenantId, v!.id))).not.toBeNull(); // 1280px poster for og:image / rich results
     expect(await headObject(keys.hls(tenantId, v!.id, "720p/seg_00000.ts"))).not.toBeNull();
 
     usage = await tenantDb(tenantId).storageUsage.findFirst();

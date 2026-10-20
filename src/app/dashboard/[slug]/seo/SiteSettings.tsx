@@ -7,6 +7,7 @@ import { Card, Field, btnCls, btnGhostCls, inputCls } from "@/components/ui";
 export type SiteSeoValues = {
   titleTemplate: string; keywords: string; organizationName: string; locale: string; twitterHandle: string;
   googleVerification: string; bingVerification: string; socials: string; ogImage: string;
+  extraMeta: string; jsonLd: string;
 };
 
 async function send(url: string, init: RequestInit) {
@@ -27,7 +28,12 @@ export default function SiteSettings({ tenantId, siteName, initial, faviconUrl }
     setBusy(true);
     const r = await send(`/api/sites/${tenantId}/seo`, {
       method: "PATCH", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...v, socials: v.socials.split(/\r?\n/).map((x) => x.trim()).filter(Boolean) }),
+      body: JSON.stringify({
+        ...v,
+        socials: v.socials.split(/\r?\n/).map((x) => x.trim()).filter(Boolean),
+        // "name: content" lines -> [{name, content}] (validated server-side; platform-managed names are refused)
+        extraMeta: v.extraMeta.split(/\r?\n/).map((l) => /^\s*([^:\s]+)\s*:\s*(.+?)\s*$/.exec(l)).filter((m): m is RegExpExecArray => !!m).map((m) => ({ name: m[1], content: m[2] })),
+      }),
     });
     setBusy(false);
     setMsg(r.ok ? { ok: true, text: "Saved" } : { ok: false, text: r.data?.issues?.[0]?.message ?? r.data?.error ?? "Could not save" });
@@ -66,6 +72,13 @@ export default function SiteSettings({ tenantId, siteName, initial, faviconUrl }
       </div>
       <Field label="Social profile URLs (one per line, https)" hint="Added as sameAs in structured data.">
         <textarea className={`${inputCls} h-20`} value={v.socials} onChange={(e) => set({ socials: e.target.value })} placeholder={"https://x.com/mychannel\nhttps://www.instagram.com/mychannel"} />
+      </Field>
+
+      <Field label="Custom meta tags for every page (one per line, name: content)" hint="Example: author: Jane Doe. Tags the platform manages itself (robots, description, viewport…) are not allowed.">
+        <textarea className={`${inputCls} h-16 font-mono text-xs`} value={v.extraMeta} onChange={(e) => set({ extraMeta: e.target.value })} />
+      </Field>
+      <Field label="Custom structured data for the home page (JSON-LD)" hint="Valid JSON with a schema.org @context. Added to your home page.">
+        <textarea className={`${inputCls} h-20 font-mono text-xs`} value={v.jsonLd} onChange={(e) => set({ jsonLd: e.target.value })} />
       </Field>
 
       <div className="mb-4 grid gap-4 sm:grid-cols-2">

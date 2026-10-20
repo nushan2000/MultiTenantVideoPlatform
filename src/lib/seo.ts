@@ -25,6 +25,47 @@ export const keywordList = z
 const emptyToUndefined = (v: unknown) => (typeof v === "string" && v.trim() === "" ? undefined : v);
 const opt = <T extends z.ZodTypeAny>(s: T) => z.preprocess(emptyToUndefined, s.optional());
 
+/** Names the platform manages itself: owners may not override them through custom meta tags. */
+const BLOCKED_META = new Set(["robots", "googlebot", "bingbot", "viewport", "refresh", "charset", "content-type", "description", "keywords", "title", "theme-color", "rating", "generator", "referrer"]);
+export const extraMetaSchema = z
+  .array(
+    z.object({
+      name: z.string().trim().toLowerCase().regex(/^[a-z][a-z0-9:_.-]{1,39}$/, "Meta names use letters, numbers, : _ . -").refine((n) => !BLOCKED_META.has(n) && !n.startsWith("http-equiv"), "This meta tag is managed by the platform"),
+      content: z.string().max(600).transform(stripText).pipe(z.string().min(1).max(300)),
+    }),
+  )
+  .max(10)
+  .default([]);
+
+/** Custom structured data: must be valid JSON, schema.org context, and small. Rendered escaped inside a ld+json script (cannot execute). */
+export function validateJsonLd(src: string): string | null {
+  if (src.length > 5000) return "Structured data is too long (max 5 KB)";
+  let data: unknown;
+  try {
+    data = JSON.parse(src);
+  } catch {
+    return "Structured data is not valid JSON";
+  }
+  const items = Array.isArray(data) ? data : [data];
+  if (items.length === 0 || items.length > 5) return "Provide one to five structured data objects";
+  for (const it of items) {
+    if (!it || typeof it !== "object") return "Each item must be an object";
+    const o = it as Record<string, unknown>;
+    if (!/schema\.org/.test(String(o["@context"] ?? ""))) return 'Each object needs "@context": "https://schema.org"';
+    if (!o["@type"]) return 'Each object needs an "@type"';
+  }
+  return null;
+}
+const jsonLdField = opt(z.string().trim().max(5000).superRefine((v, ctx) => {
+  const m = validateJsonLd(v);
+  if (m) ctx.addIssue({ code: "custom", message: m });
+}));
+export const parseJsonLd = (src: string | undefined): object[] => {
+  if (!src || validateJsonLd(src)) return [];
+  const d = JSON.parse(src);
+  return Array.isArray(d) ? d : [d];
+};
+
 export const siteSeoSchema = z.object({
   /** Must contain %s (the page title). Example: "%s | My Videos" */
   titleTemplate: opt(text(80).refine((v) => v.includes("%s"), "The template must contain %s where the page title goes")),
@@ -37,6 +78,8 @@ export const siteSeoSchema = z.object({
   organizationName: opt(text(80)),
   googleVerification: opt(z.string().trim().regex(/^[A-Za-z0-9_-]{10,100}$/, "Paste only the verification code")),
   bingVerification: opt(z.string().trim().regex(/^[A-Za-z0-9_-]{10,100}$/, "Paste only the verification code")),
+  extraMeta: extraMetaSchema,
+  jsonLd: jsonLdField,
   socials: z.array(httpsUrl).transform((a) => a.filter(Boolean)).pipe(z.array(z.string()).max(8)).default([]),
 });
 export type SiteSeo = z.infer<typeof siteSeoSchema>;
@@ -66,6 +109,8 @@ export const pageSeoSchema = z.object({
   ogImage: opt(imageUrl),
   canonicalUrl: opt(httpsUrl),
   noindex: z.boolean().default(false),
+  extraMeta: extraMetaSchema,
+  jsonLd: jsonLdField,
 });
 export type PageSeo = z.infer<typeof pageSeoSchema>;
 /** What a client may send: everything except server-managed fields. */

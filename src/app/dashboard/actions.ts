@@ -16,7 +16,7 @@ import { rateLimit, RateLimitError } from "@/lib/rate-limit";
 import { storeBranding } from "@/lib/branding";
 import { invalidateHosts, invalidateTenant } from "@/lib/tenancy/resolve";
 import { slugSchema } from "@/lib/tenancy/slugs";
-import { featuresSchema, presetTheme, themeSchema, validateCustomCss, parseTheme, type Theme } from "@/lib/theme";
+import { checkThemeContrast, featuresSchema, presetTheme, themeSchema, validateCustomCss, parseTheme, type Theme } from "@/lib/theme";
 import { isTemplateId, DEFAULT_TEMPLATE } from "@/templates/registry";
 
 /** Redirect back to a dashboard page with a flash message. Always throws (NEXT_REDIRECT). */
@@ -53,6 +53,8 @@ function themeFromForm(f: FormData, ent: { canUseCustomTheme: boolean; canUseCus
       density,
       customCss: previous?.customCss ?? "",
     });
+    const low = checkThemeContrast(theme);
+    if (low) throw new HttpError(400, low);
   } else {
     // Free plan: curated presets only.
     theme = { ...presetTheme(String(f.get("preset") ?? "classic")), density, customCss: "" };
@@ -95,7 +97,7 @@ export async function createSiteAction(formData: FormData) {
     const tenant = await platformDb.tenant.create({
       data: {
         slug: input.slug, name: input.name, planId: free.id, contentCategory: input.contentCategory, templateId: input.template,
-        theme: theme as object, features: features as object,
+        theme: theme as object, features: features as object, profile: { contactEmail: user.email } as object,
         memberships: { create: { userId: user.id, role: "OWNER" } },
         adConfig: { create: { mode: "PLATFORM" } },
         storageUsage: { create: {} },
@@ -157,7 +159,7 @@ export async function saveFeaturesAction(slug: string, formData: FormData) {
     const adult = a.tenant.contentCategory === "ADULT";
     const features = featuresSchema.parse({
       comments: checkbox(formData, "comments"), categories: checkbox(formData, "categories"), search: checkbox(formData, "search"),
-      likes: checkbox(formData, "likes"), ageGate: adult || checkbox(formData, "ageGate"), downloads: false, noindex: checkbox(formData, "noindex"),
+      likes: checkbox(formData, "likes"), ageGate: adult || checkbox(formData, "ageGate"), downloads: false, noindex: checkbox(formData, "noindex"), crawlerAccess: checkbox(formData, "crawlerAccess"),
     });
     await a.db.tenant.update({ where: { id: a.tenant.id }, data: { features: features as object } });
     await invalidateTenant(a.tenant.id);

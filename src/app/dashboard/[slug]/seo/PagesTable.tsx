@@ -5,7 +5,9 @@ import { useEffect, useMemo, useState } from "react";
 import SeoPanel from "@/components/seo/SeoPanel";
 import { listingBody, toListingValue } from "@/components/seo/SearchListing";
 import { Card, btnGhostCls } from "@/components/ui";
+import { parseCsv, toCsv } from "@/lib/csv";
 import { truncate } from "@/lib/seo";
+import { useRouter } from "next/navigation";
 
 type Seo = { handle?: string; title?: string; description?: string; keywords?: string[]; ogImage?: string; canonicalUrl?: string; noindex?: boolean };
 export type PageRow = {
@@ -22,7 +24,7 @@ type Filter = "all" | "attention";
 const tabCls = (on: boolean) => `rounded-full px-3 py-1 text-sm ${on ? "bg-blue-600 text-white" : "bg-neutral-200 hover:bg-neutral-300"}`;
 
 /** Every page of the site in one list: see what's missing, expand a row to edit its search listing in place. */
-export default function PagesTable({ rows: initial, origin, siteName, template, slug }: { rows: PageRow[]; origin: string; siteName: string; template: string; slug: string }) {
+export default function PagesTable({ rows: initial, origin, siteName, template, slug, tenantId }: { rows: PageRow[]; origin: string; siteName: string; template: string; slug: string; tenantId: string }) {
   const [rows, setRows] = useState(initial);
   const [filter, setFilter] = useState<Filter>("all");
   const [kind, setKind] = useState<"all" | "category" | "video">("all");
@@ -39,7 +41,42 @@ export default function PagesTable({ rows: initial, origin, siteName, template, 
     }
   }, []);
 
-  const needs = (r: PageRow) => !r.seo.description && !r.description.trim() ? "Missing description" : !r.seo.title && r.kind === "category" ? "Using automatic title" : null;
+  const router = useRouter();
+  const [bulkMsg, setBulkMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  // titles that appear on more than one page compete with each other in search results
+  const titleCount = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of rows) { const t = (r.seo.title || r.name).trim().toLowerCase(); m.set(t, (m.get(t) ?? 0) + 1); }
+    return m;
+  }, [rows]);
+  const needs = (r: PageRow) =>
+    (titleCount.get((r.seo.title || r.name).trim().toLowerCase()) ?? 0) > 1 ? "Duplicate title"
+    : !r.seo.description && !r.description.trim() ? "Missing description"
+    : !r.seo.title && r.kind === "category" ? "Using automatic title" : null;
+
+  function exportCsv() {
+    const csv = toCsv([["type", "id", "url", "seo_title", "seo_description"], ...rows.map((r) => [r.kind, r.id, `${origin}${r.kind === "video" ? "/v/" : "/c/"}${r.ref}`, r.seo.title ?? "", r.seo.description ?? ""])]);
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    a.download = `${slug}-seo.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+  async function importCsv(file: File | undefined) {
+    if (!file) return;
+    const [head, ...body] = parseCsv(await file.text());
+    const col = (n: string) => head?.indexOf(n) ?? -1;
+    if (col("type") < 0 || col("id") < 0) return setBulkMsg({ ok: false, text: "The CSV needs type and id columns (export one to see the format)." });
+    const changed = body
+      .map((c) => ({ type: c[col("type")], id: c[col("id")], title: c[col("seo_title")] ?? "", description: c[col("seo_description")] ?? "" }))
+      .filter((r) => (r.type === "video" || r.type === "category") && r.id)
+      .filter((r) => { const cur = rows.find((x) => x.id === r.id); return cur && ((cur.seo.title ?? "") !== r.title || (cur.seo.description ?? "") !== r.description); });
+    if (!changed.length) return setBulkMsg({ ok: true, text: "No changes found in that file." });
+    const res = await fetch(`/api/sites/${tenantId}/seo/bulk`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ rows: changed.slice(0, 500) }) }).catch(() => null);
+    const data = await res?.json().catch(() => ({}));
+    if (res?.ok) { setBulkMsg({ ok: true, text: `Updated ${data.updated} page${data.updated === 1 ? "" : "s"}${data.skipped?.length ? `, skipped ${data.skipped.length} unknown` : ""}.` }); router.refresh(); }
+    else setBulkMsg({ ok: false, text: data?.issues?.[0]?.message ?? data?.error ?? "Import failed" });
+  }
   const shown = useMemo(
     () => rows.filter((r) => (kind === "all" || r.kind === kind) && (filter === "all" || !!needs(r))),
     [rows, filter, kind],
@@ -55,6 +92,12 @@ export default function PagesTable({ rows: initial, origin, siteName, template, 
         <button className={tabCls(kind === "all")} onClick={() => setKind("all")}>Everything</button>
         <button className={tabCls(kind === "category")} onClick={() => setKind("category")}>Categories</button>
         <button className={tabCls(kind === "video")} onClick={() => setKind("video")}>Videos</button>
+      </div>
+      <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
+        <button className={btnGhostCls} onClick={exportCsv}>Export CSV</button>
+        <label className={`${btnGhostCls} cursor-pointer`}>Import CSV<input type="file" accept=".csv,text/csv" hidden onChange={(e) => { void importCsv(e.target.files?.[0]); e.target.value = ""; }} /></label>
+        <span className="text-xs text-neutral-500">Edit titles and descriptions in a spreadsheet, then import (up to 500 rows).</span>
+        {bulkMsg && <span role={bulkMsg.ok ? "status" : "alert"} className={bulkMsg.ok ? "text-green-700" : "text-red-700"}>{bulkMsg.text}</span>}
       </div>
       {shown.length === 0 && <p className="text-sm text-neutral-500">Nothing here. {filter === "attention" ? "Every page has what it needs." : ""}</p>}
       <ul className="divide-y">

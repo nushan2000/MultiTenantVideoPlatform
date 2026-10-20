@@ -78,7 +78,8 @@ export default async function Settings({ params, searchParams }: { params: Promi
             <label key={k} className="mb-2 flex items-center gap-2 text-sm"><input type="checkbox" name={k} defaultChecked={features[k]} disabled={disabled} /> {label}</label>
           ))}
           <label className="mb-2 flex items-center gap-2 text-sm"><input type="checkbox" name="ageGate" defaultChecked={adult || features.ageGate} disabled={adult} /> Age-gate interstitial {adult && "(required for adult sites)"}</label>
-          <label className="mb-3 flex items-center gap-2 text-sm"><input type="checkbox" name="noindex" defaultChecked={features.noindex} /> Ask search engines not to index this site (noindex)</label>
+          <label className="mb-2 flex items-center gap-2 text-sm"><input type="checkbox" name="noindex" defaultChecked={features.noindex} /> Ask search engines not to index this site (noindex)</label>
+          <label className="mb-3 flex items-center gap-2 text-sm"><input type="checkbox" name="crawlerAccess" defaultChecked={features.crawlerAccess} /> Let search engines read content behind the age gate (recommended: gated sites cannot be indexed otherwise)</label>
           <button className={btnCls}>Save features</button>
         </form>
       </Card>

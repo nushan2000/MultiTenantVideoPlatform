@@ -2,6 +2,8 @@ import { z } from "zod";
 import { pageSeoInputSchema, parsePageSeo } from "@/lib/seo";
 import { videoHandleTaken, videoPath, withHandleHistory } from "@/lib/handles";
 import { HttpError } from "@/lib/ingest/types";
+import { parseChapters, parseTags } from "@/lib/media-meta";
+import { notifyPaths } from "@/lib/seo-notify";
 import { route, serializeVideo } from "@/lib/api";
 import { apiVideo } from "@/lib/api-video";
 import { audit } from "@/lib/audit";
@@ -15,6 +17,9 @@ const patch = z.object({
   visibility: z.enum(["PUBLIC", "UNLISTED", "PRIVATE"]).optional(),
   categoryId: z.string().nullable().optional(),
   featured: z.boolean().optional(),
+  tags: z.union([z.string(), z.array(z.string())]).optional(), // "a, b" or ["a","b"] -> slugified, max 15
+  chapters: z.string().max(5000).optional(), // lines like "0:00 Intro"
+  transcript: z.string().max(100_000).nullable().optional(), // plain text shown on the watch page
   seo: pageSeoInputSchema.optional(), // per-video SEO overrides (validated, sanitised, https-only URLs)
 });
 
@@ -27,7 +32,11 @@ export const PATCH = route(async (req, { params }: { params: Promise<{ id: strin
     const cat = await access.db.category.findFirst({ where: { id: data.categoryId } });
     if (!cat) data.categoryId = null;
   }
-  const { seo: seoInput, ...rest } = data;
+  const { seo: seoInput, tags, chapters, transcript, ...rest } = data;
+  const extra: Record<string, unknown> = {};
+  if (tags !== undefined) extra.tags = parseTags(tags);
+  if (chapters !== undefined) extra.chapters = parseChapters(chapters, video.durationSec ?? undefined);
+  if (transcript !== undefined) extra.transcript = transcript ? transcript.replace(/\u0000/g, "").trim() : null;
   let seo: object | undefined;
   if (seoInput) {
     const prev = parsePageSeo(video.seo);
@@ -37,7 +46,8 @@ export const PATCH = route(async (req, { params }: { params: Promise<{ id: strin
     // Changing the handle keeps the old URL working: it is remembered and 308-redirects to the new one.
     seo = { ...seoInput, previousHandles: withHandleHistory(prev, seoInput.handle, prev.handle) };
   }
-  const updated = await access.db.video.update({ where: { id }, data: { ...rest, ...(seo ? { seo } : {}) } });
+  const updated = await access.db.video.update({ where: { id }, data: { ...rest, ...extra, ...(seo ? { seo } : {}) } });
+  void notifyPaths(access.tenant.id, [videoPath(updated)]); // IndexNow: changed URL
   return { ...serializeVideo(updated), path: videoPath(updated) };
 });
 

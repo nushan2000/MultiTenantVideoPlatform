@@ -55,6 +55,9 @@ export const keys = {
   source: (tenantId: string, videoId: string, ext: string) => `tenants/${tenantId}/videos/${videoId}/source.${ext}`,
   hls: (tenantId: string, videoId: string, rel: string) => `tenants/${tenantId}/videos/${videoId}/hls/${rel}`,
   thumb: (tenantId: string, videoId: string) => `tenants/${tenantId}/videos/${videoId}/thumb.jpg`,
+  /** 1280px poster: social previews (og:image), video rich results and the player poster. thumb.jpg (640px) is for grid cards. */
+  thumbLarge: (tenantId: string, videoId: string) => `tenants/${tenantId}/videos/${videoId}/thumb-lg.jpg`,
+  caption: (tenantId: string, videoId: string, lang: string) => `tenants/${tenantId}/videos/${videoId}/captions/${lang}.vtt`,
   branding: (tenantId: string, name: string) => `tenants/${tenantId}/branding/${name}`,
   tenantPrefix: (tenantId: string) => `tenants/${tenantId}/`,
 };

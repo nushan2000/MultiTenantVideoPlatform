@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { humanizeFilename } from "../media-meta";
 import { tenantDb } from "../db/client";
 import { entitlements, EntitlementError } from "../entitlements";
 import { releaseReservation, reserveQuota } from "../quota";
@@ -81,7 +82,7 @@ export const directUpload: IngestMethod<DirectInit, DirectResult> = {
     // Reserve BEFORE creating anything, so concurrent uploads can't exceed the plan.
     await reserveQuota(ctx.tenantId, input.sizeBytes, e.storageLimitBytes);
     const db = tenantDb(ctx.tenantId);
-    const title = input.title || input.filename.replace(/\.[^.]+$/, "").slice(0, 200) || "Untitled";
+    const title = input.title || humanizeFilename(input.filename);
     let videoId: string | undefined;
     try {
       const video = await db.video.create({

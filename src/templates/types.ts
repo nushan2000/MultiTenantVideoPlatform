@@ -15,12 +15,17 @@ export type StoreVideo = {
 
 export type StoreCategory = { slug: string; name: string };
 export type Crumb = { name: string; href: string };
+export type NavLink = { title: string; href: string };
+export type FooterGroup = { title: string; links: NavLink[] };
+export type Pagination = { page: number; totalPages: number; hrefFor: (page: number) => string };
 
 export type ShellProps = {
   tenant: { name: string; logoUrl: string | null };
   theme: Theme;
   features: Features;
   categories: StoreCategory[];
+  navLinks: NavLink[];
+  footer: FooterGroup[];
   showBadge: boolean;
   allowCustomCss: boolean;
   searchQuery?: string;
@@ -30,14 +35,28 @@ export type ShellProps = {
   children: ReactNode;
 };
 
-export type HomeProps = { heading: string; intro?: string | null; featured: StoreVideo[]; latest: StoreVideo[]; features: Features };
-export type ListingProps = { heading: string; intro?: string | null; videos: StoreVideo[]; emptyText: string; breadcrumbs?: Crumb[] };
+export type HomeProps = {
+  heading: string;
+  intro?: string | null;
+  chips: NavLink[]; // category chips (YouTube-style filter row)
+  featured: StoreVideo[];
+  latest: StoreVideo[];
+  pagination?: Pagination;
+  features: Features;
+};
+export type ListingProps = { heading: string; intro?: string | null; videos: StoreVideo[]; emptyText: string; breadcrumbs?: Crumb[]; pagination?: Pagination; chips?: NavLink[] };
+export type CategoriesProps = { categories: { name: string; href: string; count: number; thumbUrl: string | null }[] };
+export type PageProps = { title: string; html: string; breadcrumbs?: Crumb[]; updated?: Date | null };
 export type WatchProps = {
   video: StoreVideo;
   related: StoreVideo[];
   breadcrumbs?: Crumb[];
   player: ReactNode; // the HLS player (client component), built by the page
+  actions: ReactNode; // Share / embed
   report: ReactNode; // abuse/DMCA form, always present
+  tags: NavLink[];
+  chapters: ReactNode;
+  transcript: string | null;
   banner?: string | null;
   features: Features;
 };
@@ -53,5 +72,7 @@ export type Template = {
   Shell: (p: ShellProps) => ReactNode;
   Home: (p: HomeProps) => ReactNode;
   Listing: (p: ListingProps) => ReactNode;
+  Categories: (p: CategoriesProps) => ReactNode;
+  Page: (p: PageProps) => ReactNode;
   Watch: (p: WatchProps) => ReactNode;
 };

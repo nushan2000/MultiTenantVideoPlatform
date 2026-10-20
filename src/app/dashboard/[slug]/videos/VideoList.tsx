@@ -4,15 +4,17 @@ import { useEffect, useState } from "react";
 import SearchListing, { listingBody, toListingValue } from "@/components/seo/SearchListing";
 import { Card, btnDangerCls, btnGhostCls, inputCls } from "@/components/ui";
 import { truncate } from "@/lib/seo";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 type Row = {
   id: string; handle?: string; title: string; description: string | null; status: string; visibility: string; featured: boolean;
   categoryId: string | null; ingestMethod: string; sourceUrl: string | null; failureReason: string | null;
   importProgress: number; durationSec: number | null; views: number; createdAt: string;
+  tags: string[]; chapters: string; transcript: string; captions: Cap[];
   seo: { handle?: string; title?: string; description?: string; keywords?: string[]; ogImage?: string; canonicalUrl?: string; noindex?: boolean };
 };
 type Site = { name: string; origin: string };
+type Cap = { lang: string; label: string };
 type Live = { status: string; percent: number; failureReason: string | null };
 
 const LABEL: Record<string, string> = { UPLOADING: "uploading", IMPORTING: "importing", PROCESSING: "processing", READY: "ready", FAILED: "failed", BLOCKED: "blocked" };
@@ -25,6 +27,7 @@ const ACTIVE = new Set(["IMPORTING", "PROCESSING", "UPLOADING"]);
 export default function VideoList({ initial, categories, site }: { initial: Row[]; categories: { id: string; name: string }[]; site: Site }) {
   const [rows, setRows] = useState(initial);
   const [live, setLive] = useState<Record<string, Live>>({});
+  const router = useRouter();
   const params = useSearchParams();
   const [editing, setEditing] = useState<string | null>(params.get("edit"));
   const [seoFor, setSeoFor] = useState<string | null>(params.get("seo") === "1" ? params.get("edit") : null);
@@ -67,6 +70,7 @@ export default function VideoList({ initial, categories, site }: { initial: Row[
     if (await call(`/api/videos/${id}`, "PATCH", patch)) {
       setRows((r) => r.map((x) => (x.id === id ? { ...x, ...patch } : x)));
       setEditing(null);
+      router.refresh(); // re-read normalised tags/chapters/handle from the server
     }
   }
 
@@ -116,6 +120,9 @@ function EditForm({ row, categories, site, seoOpen, onSave }: { row: Row; catego
   const [categoryId, setCategoryId] = useState(row.categoryId ?? "");
   const [featured, setFeatured] = useState(row.featured);
   const [listing, setListing] = useState(toListingValue(row.seo));
+  const [tags, setTags] = useState(row.tags.map((t) => t.replace(/-/g, " ")).join(", "));
+  const [chapters, setChapters] = useState(row.chapters);
+  const [transcript, setTranscript] = useState(row.transcript);
   return (
     <div className="mt-3 grid gap-2 rounded-md bg-neutral-50 p-3 text-sm">
       <input className={inputCls} value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} aria-label="Title" />
@@ -129,14 +136,63 @@ function EditForm({ row, categories, site, seoOpen, onSave }: { row: Row; catego
         </select>
         <label className="flex items-center gap-1"><input type="checkbox" checked={featured} onChange={(e) => setFeatured(e.target.checked)} /> Featured</label>
       </div>
+      <label className="block"><span className="mb-1 block font-medium">Tags (comma separated)</span>
+        <input className={inputCls} value={tags} onChange={(e) => setTags(e.target.value)} placeholder="home workout, beginner, yoga" />
+        <span className="mt-1 block text-xs text-neutral-500">Tags create /tag/… pages and link related videos together. Up to 15.</span></label>
+      <label className="block"><span className="mb-1 block font-medium">Chapters</span>
+        <textarea className={`${inputCls} font-mono text-xs`} rows={4} value={chapters} onChange={(e) => setChapters(e.target.value)} placeholder={"0:00 Intro\n1:30 Warm up\n12:05 Cool down"} />
+        <span className="mt-1 block text-xs text-neutral-500">One per line, starting with a time. Google can show these as key moments in search results.</span></label>
+      <label className="block"><span className="mb-1 flex justify-between font-medium"><span>Transcript</span><span className="text-xs font-normal text-neutral-500">{transcript.length.toLocaleString()} chars</span></span>
+        <textarea className={inputCls} rows={4} value={transcript} onChange={(e) => setTranscript(e.target.value)} placeholder="Plain text of what is said in the video. Shown on the watch page, it gives search engines real content to index." /></label>
+      <Captions row={row} />
       <SearchListing
+        socialImage={`/api/media/${(row as unknown as { thumb?: string }).thumb ?? ""}`}
         value={listing} onChange={setListing} origin={site.origin} pathPrefix="/v/" handleEditable defaultHandle={row.id} savedHandle={row.seo?.handle ?? ""}
         fallbackTitle={title} fallbackDescription={truncate(description || `Watch ${title} on ${site.name}.`, 155)} siteName={site.name} defaultOpen={seoOpen}
       />
       <div><button className={btnGhostCls} onClick={() => onSave({
         title, description: description || null, visibility, categoryId: categoryId || null, featured,
+        tags: tags as unknown as string[], chapters: chapters as unknown as string, transcript: (transcript || null) as unknown as string,
         seo: { ...listingBody(listing), keywords: listing.keywords.split(",").map((k) => k.trim()).filter(Boolean) } as unknown as Row["seo"],
       })}>Save</button></div>
+    </div>
+  );
+}
+
+/** Caption (subtitle) files: WebVTT or SRT per language. The first one also becomes the transcript if none is written. */
+function Captions({ row }: { row: Row }) {
+  const [caps, setCaps] = useState<Cap[]>(row.captions);
+  const [lang, setLang] = useState("en");
+  const [label, setLabel] = useState("English");
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function upload(file: File | undefined) {
+    if (!file) return;
+    setBusy(true);
+    const fd = new FormData();
+    fd.set("lang", lang); fd.set("label", label); fd.set("file", file);
+    const res = await fetch(`/api/videos/${row.id}/captions`, { method: "POST", body: fd }).catch(() => null);
+    const data = await res?.json().catch(() => ({}));
+    setBusy(false);
+    if (res?.ok) { setCaps(data.captions); setMsg({ ok: true, text: data.transcriptFilled ? "Captions added and the transcript was filled in from them." : "Captions added." }); }
+    else setMsg({ ok: false, text: data?.error ?? "Upload failed" });
+  }
+  async function remove(l: string) {
+    const res = await fetch(`/api/videos/${row.id}/captions?lang=${encodeURIComponent(l)}`, { method: "DELETE" }).catch(() => null);
+    const data = await res?.json().catch(() => ({}));
+    if (res?.ok) setCaps(data.captions);
+  }
+  return (
+    <div className="rounded-md border bg-white p-3">
+      <div className="mb-2 font-medium">Captions / subtitles</div>
+      <ul className="mb-2 space-y-1">{caps.map((c) => <li key={c.lang} className="flex items-center justify-between"><span>{c.label} <span className="text-xs text-neutral-500">({c.lang})</span></span><button type="button" className={btnDangerCls} onClick={() => remove(c.lang)}>Remove</button></li>)}{caps.length === 0 && <li className="text-neutral-500">No captions yet.</li>}</ul>
+      <div className="flex flex-wrap items-center gap-2">
+        <input className={inputCls + " !w-20"} value={lang} onChange={(e) => setLang(e.target.value)} aria-label="Language code" placeholder="en" />
+        <input className={inputCls + " !w-32"} value={label} onChange={(e) => setLabel(e.target.value)} aria-label="Label" placeholder="English" />
+        <input type="file" accept=".vtt,.srt,text/vtt" disabled={busy} onChange={(e) => upload(e.target.files?.[0])} />
+      </div>
+      {msg && <p role={msg.ok ? "status" : "alert"} className={`mt-1 text-xs ${msg.ok ? "text-green-700" : "text-red-700"}`}>{msg.text}</p>}
     </div>
   );
 }

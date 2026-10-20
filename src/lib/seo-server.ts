@@ -57,18 +57,27 @@ export function buildPageMetadata(a: {
   noindex?: boolean;
   canonicalUrl?: string; // explicit override
   ogType?: "website" | "video.other" | "article";
+  /** Paginated lists: page N>1 gets its own canonical, a "Page N" title and rel prev/next. */
+  pagination?: { page: number; totalPages: number };
+  /** Custom <meta name> tags from the page's SEO settings. */
+  extraMeta?: { name: string; content: string }[];
 }): Metadata {
   const { tenant: t, siteSeo: s, origin } = a;
   const siteNoindex = parseFeatures(t.features).noindex;
-  const url = a.canonicalUrl || `${origin}${a.path}`;
+  const pg = a.pagination && a.pagination.page > 1 ? a.pagination : null;
+  const url = a.canonicalUrl || `${origin}${a.path}${pg ? `?page=${pg.page}` : ""}`;
+  const pageTitle = pg ? `${a.title} (Page ${pg.page})` : a.title;
   const image = absoluteUrl(origin, a.image) ?? absoluteUrl(origin, s.ogImage) ?? absoluteUrl(origin, t.logoUrl);
   const handle = s.twitterHandle ? (s.twitterHandle.startsWith("@") ? s.twitterHandle : `@${s.twitterHandle}`) : undefined;
   const keywords = [...(a.keywords ?? []), ...s.keywords];
   return {
-    title: a.absoluteTitle ? { absolute: a.title } : a.title,
+    title: a.absoluteTitle ? { absolute: pageTitle } : pageTitle,
     description: a.description,
     keywords: keywords.length ? [...new Set(keywords)].slice(0, 20) : undefined,
-    alternates: { canonical: url },
+    // Pages replace (not merge) `alternates`, so the RSS link is repeated here. For page 2+, Next would drop "?page=N" from the canonical,
+    // so those canonicals (and every rel=prev/next) are rendered by <PaginationHead/> in the page body instead.
+    alternates: { ...(pg ? {} : { canonical: url }), types: { "application/rss+xml": [{ url: "/feed.xml", title: `${t.name} videos` }] } },
+    other: a.extraMeta?.length ? Object.fromEntries(a.extraMeta.map((m) => [m.name, m.content])) : undefined,
     // always explicit: an `undefined` here would ERASE the layout default instead of inheriting it
     // a site-wide noindex always wins over a page-level "indexable"
     robots: siteNoindex ? { index: false, follow: false } : a.noindex ? NOINDEX_ROBOTS : INDEXABLE_ROBOTS,
@@ -77,7 +86,7 @@ export function buildPageMetadata(a: {
       siteName: t.name,
       locale: (s.locale ?? "en").replace("-", "_"),
       url,
-      title: a.title,
+      title: pageTitle,
       description: a.description,
       images: image ? [{ url: image, alt: a.title }] : undefined,
     },

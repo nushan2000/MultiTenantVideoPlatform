@@ -1,6 +1,10 @@
 import { cookies, headers } from "next/headers";
 import { cache } from "react";
 import { AGE_COOKIE } from "./age-cookie";
+import { isVerifiedCrawler } from "./crawler";
+import { clientIp } from "./rate-limit";
+import { loadPages } from "./pages/store";
+import { canonicalOrigin } from "./seo-server";
 import { parseFeatures } from "./theme";
 import { HttpError } from "./ingest/types";
 import { resolveHost, type ResolvedTenant } from "./tenancy/resolve";
@@ -23,6 +27,17 @@ export const tenantForHost = cache((host: string) => resolveHost(decodeURICompon
  * but Next still renders the page and ships it in the RSC payload, so each page must refuse to load gated content.
  */
 export async function ageGateBlocks(t: ResolvedTenant): Promise<boolean> {
-  const gated = t.contentCategory === "ADULT" || parseFeatures(t.features).ageGate;
-  return gated && !(await cookies()).get(AGE_COOKIE);
+  const f = parseFeatures(t.features);
+  const gated = t.contentCategory === "ADULT" || f.ageGate;
+  if (!gated || (await cookies()).get(AGE_COOKIE)) return false;
+  // Verified search-engine crawlers (forward-confirmed reverse DNS, not just a User-Agent string) may read the content,
+  // otherwise a gated site shows crawlers only the interstitial and can never be indexed. Owner can switch this off.
+  if (f.crawlerAccess) {
+    const h = await headers();
+    if (await isVerifiedCrawler(clientIp(h), h.get("user-agent"))) return false;
+  }
+  return true;
 }
+
+/** Merged system + custom pages for the current tenant (one DB read per request). */
+export const pagesForTenant = cache(async (t: ResolvedTenant) => loadPages(t, await canonicalOrigin(t)));

@@ -5,7 +5,6 @@ export default function sitemap(): MetadataRoute.Sitemap {
   return [
     { url: `${base}/`, changeFrequency: "weekly", priority: 1 },
     { url: `${base}/register`, changeFrequency: "monthly", priority: 0.8 },
-    { url: `${base}/terms`, changeFrequency: "yearly", priority: 0.3 },
-    { url: `${base}/aup`, changeFrequency: "yearly", priority: 0.3 },
+    ...["about", "contact", "privacy", "dmca", "cookies", "terms", "aup"].map((p) => ({ url: `${base}/${p}`, changeFrequency: "yearly" as const, priority: 0.3 })),
   ];
 }

@@ -4,7 +4,7 @@ import { requireTenant } from "@/lib/access";
 import { siteUrl } from "@/lib/site-url";
 
 const tabs = [
-  ["", "Overview"], ["/videos", "Videos"], ["/settings", "Settings"], ["/seo", "SEO"], ["/domains", "Domain"],
+  ["", "Overview"], ["/videos", "Videos"], ["/settings", "Settings"], ["/pages", "Pages"], ["/seo", "SEO"], ["/domains", "Domain"],
   ["/ads", "Ads"], ["/billing", "Plan & billing"], ["/reports", "Reports"],
 ] as const;
 

@@ -33,6 +33,8 @@ const TENANT_API_ALLOW = ["/api/media/", "/api/public/"];
 function secure(res: NextResponse, tenant: boolean, embed = false) {
   res.headers.set("x-content-type-options", "nosniff");
   res.headers.set("referrer-policy", "strict-origin-when-cross-origin");
+  // HTTPS-only for a year once served over TLS (production). A ranking-neutral but trust/security signal for browsers.
+  if (process.env.NODE_ENV === "production") res.headers.set("strict-transport-security", "max-age=31536000");
   if (tenant) res.headers.set("content-security-policy", storefrontCsp(process.env.NODE_ENV !== "production", embed));
   else res.headers.set("x-frame-options", "DENY");
   return res;
@@ -56,6 +58,7 @@ export function middleware(req: NextRequest) {
   // Tenant host (subdomain or custom domain).
   const normalized = host!.toLowerCase().replace(/:\d+$/, "");
   headers.set("x-tenant-host", normalized);
+  headers.set("x-site-url", pathname + req.nextUrl.search); // lets the layout 301 a free subdomain to the active custom domain
 
   if (pathname.startsWith("/api/")) {
     if (!TENANT_API_ALLOW.some((p) => pathname.startsWith(p))) return new NextResponse("Not found", { status: 404 });
@@ -65,7 +68,13 @@ export function middleware(req: NextRequest) {
     return new NextResponse("Not found", { status: 404 }); // dashboard lives on the platform domain only
   }
 
+  // IndexNow ownership file: /<INDEXNOW_KEY>.txt on every tenant host
+  const nowKey = process.env.INDEXNOW_KEY;
   const url = req.nextUrl.clone();
+  if (nowKey && pathname === `/${nowKey}.txt`) {
+    url.pathname = `/sites/${encodeURIComponent(normalized)}/indexnow-key.txt`;
+    return secure(NextResponse.rewrite(url, { request: { headers } }), true);
+  }
   url.pathname = `/sites/${encodeURIComponent(normalized)}${pathname === "/" ? "" : pathname}`;
   return secure(NextResponse.rewrite(url, { request: { headers } }), true, pathname.startsWith("/embed/"));
 }

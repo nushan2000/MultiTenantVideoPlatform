@@ -1,5 +1,10 @@
+import PlatformFooter from "@/components/PlatformFooter";
+
+export const metadata = { title: "Terms of Service", description: "The terms that apply when you use VideoPlatform.", alternates: { canonical: "/terms" } };
+
 export default function Terms() {
   return (
+    <>
     <main className="mx-auto max-w-2xl px-4 py-12 text-sm leading-6">
       <h1 className="mb-4 text-2xl font-bold">Terms of Service</h1>
       <p className="mb-3 rounded border border-amber-300 bg-amber-50 p-3">
@@ -10,5 +15,7 @@ export default function Terms() {
         comply with the Acceptable Use Policy. We may remove content and suspend sites that violate these terms, respond to abuse and copyright
         (DMCA) reports, and cooperate with law enforcement.</p>
     </main>
+      <PlatformFooter />
+    </>
   );
 }

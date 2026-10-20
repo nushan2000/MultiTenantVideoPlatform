@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { humanizeFilename } from "../media-meta";
 import { tenantDb } from "../db/client";
 import { entitlements, EntitlementError, maxImportBytes } from "../entitlements";
 import { getEnv } from "../env";
@@ -69,7 +70,7 @@ export const urlImport: IngestMethod<UrlImportInput, UrlImportResult> = {
         items.push({ url: raw, error: err instanceof QuotaError ? "Storage quota exceeded" : "Could not reserve storage", code: "quota_exceeded" });
         continue;
       }
-      const title = (urls.length === 1 && input.title) || decodeURIComponent(url.pathname.split("/").pop() || "").replace(/\.[^.]+$/, "") || url.hostname;
+      const title = (urls.length === 1 && input.title) || humanizeFilename(decodeURIComponent(url.pathname.split("/").pop() || "")) || url.hostname;
       let videoId: string | undefined;
       try {
         const video = await db.video.create({

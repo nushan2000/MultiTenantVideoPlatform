@@ -74,6 +74,7 @@ https:// {
 	tls {
 		on_demand
 	}
+	encode zstd gzip   # compression: faster pages (Core Web Vitals) and less bandwidth
 	reverse_proxy 127.0.0.1:3000 {
 		header_up X-Forwarded-Proto https
 	}
@@ -100,7 +101,14 @@ table inet importer {
 ```
 This sits behind the in-code guard (resolution pinning, per-hop validation); if you also block cloud-metadata addresses at the host level, a guard bug is not exploitable.
 
-## 8. Operations
+## 8. SEO operations
+- **IndexNow:** set `INDEXNOW_KEY` (any 8-128 chars of `A-Za-z0-9-`). Every site then serves `/<key>.txt` and pings Bing/Yandex when a video goes live or a page changes.
+- **Search Console / Bing Webmaster:** owners paste their verification code in *Dashboard → SEO* and submit `https://<site>/sitemap.xml`.
+- **Public Suffix List:** apply to add your platform domain to <https://publicsuffix.org/> so `*.yourplatform.com` tenants are treated as separate sites by browsers and search engines (protects tenants from each other's reputation).
+- **Policy for new free sites:** consider `noindex` until reviewed if you expect spam. Adult tenants are better on a separate domain.
+- **Caching:** HTML is dynamic. Put a CDN in front of `/api/media/*` (immutable media) first; add HTML caching only with a short TTL.
+
+## 9. Operations
 - Health: `GET http://127.0.0.1:3000/api/health` (Postgres, Redis, storage).
 - Logs are structured JSON (pino) on stdout → `journalctl -u vp-web -o cat`.
 - Dead-letter jobs: BullMQ queue `video-dead-letter` (inspect with any BullMQ dashboard).

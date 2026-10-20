@@ -12,9 +12,13 @@ export type ListingValue = {
   ogImage: string;
   canonicalUrl: string;
   noindex: boolean;
+  /** one per line: "name: content" */
+  extraMeta: string;
+  /** custom schema.org JSON-LD (validated on save) */
+  jsonLd: string;
 };
 
-type StoredSeo = { title?: string; description?: string; handle?: string; keywords?: string[]; ogImage?: string; canonicalUrl?: string; noindex?: boolean };
+type StoredSeo = { title?: string; description?: string; handle?: string; keywords?: string[]; ogImage?: string; canonicalUrl?: string; noindex?: boolean; extraMeta?: { name: string; content: string }[]; jsonLd?: string };
 
 export const toListingValue = (s: StoredSeo | undefined | null, handleOverride?: string): ListingValue => ({
   title: s?.title ?? "",
@@ -24,11 +28,14 @@ export const toListingValue = (s: StoredSeo | undefined | null, handleOverride?:
   ogImage: s?.ogImage ?? "",
   canonicalUrl: s?.canonicalUrl ?? "",
   noindex: s?.noindex ?? false,
+  extraMeta: (s?.extraMeta ?? []).map((m) => `${m.name}: ${m.content}`).join("\n"),
+  jsonLd: s?.jsonLd ?? "",
 });
 
 export const listingBody = (v: ListingValue) => ({
   title: v.title, description: v.description, handle: v.handle, keywords: v.keywords,
-  ogImage: v.ogImage, canonicalUrl: v.canonicalUrl, noindex: v.noindex,
+  ogImage: v.ogImage, canonicalUrl: v.canonicalUrl, noindex: v.noindex, jsonLd: v.jsonLd,
+  extraMeta: v.extraMeta.split(/\r?\n/).map((l) => /^\s*([^:\s]+)\s*:\s*(.+?)\s*$/.exec(l)).filter((m): m is RegExpExecArray => !!m).map((m) => ({ name: m[1], content: m[2] })),
 });
 
 const COLOR = { good: "text-green-700", warn: "text-amber-700", bad: "text-red-700" } as const;
@@ -55,6 +62,8 @@ export type ListingProps = {
   /** Hide the share-image / canonical / keywords block (home uses site-wide settings instead). */
   simple?: boolean;
   titleLabel?: string;
+  /** Image for the social-card preview (thumbnail / share image). */
+  socialImage?: string;
 };
 
 /**
@@ -86,6 +95,12 @@ export default function SearchListing(p: ListingProps) {
           <div className="truncate text-lg leading-snug text-blue-700">{truncate(fullTitle, 60)}</div>
           <div className="text-sm text-neutral-600">{truncate(shownDesc, 160)}</div>
           {v.noindex && <div className="mt-1 text-xs font-medium text-red-700">Hidden from search engines (noindex)</div>}
+          {open && (
+            <div className="mt-3 max-w-sm overflow-hidden rounded-md border border-neutral-200" aria-label="Social share preview">
+              <div className="aspect-[1.91/1] bg-neutral-200">{(v.ogImage || p.socialImage) ? <img src={v.ogImage || p.socialImage} alt="" className="h-full w-full object-cover" /> : null}</div>
+              <div className="bg-neutral-50 p-2"><div className="text-xs uppercase text-neutral-500">{host}</div><div className="truncate text-sm font-semibold">{truncate(shownTitle, 70)}</div><div className="truncate text-xs text-neutral-600">{truncate(shownDesc, 90)}</div></div>
+            </div>
+          )}
         </div>
         <button type="button" onClick={() => setOpen(!open)} aria-expanded={open}
           className="shrink-0 rounded-md border border-neutral-300 px-3 py-1.5 text-sm hover:bg-neutral-50">
@@ -132,6 +147,11 @@ export default function SearchListing(p: ListingProps) {
                   <input className={inputCls} value={v.ogImage} onChange={(e) => set({ ogImage: e.target.value })} placeholder="Defaults to the thumbnail / site image" /></label>
                 <label className="block"><span className="mb-1 block font-medium">Canonical URL</span>
                   <input className={inputCls} value={v.canonicalUrl} onChange={(e) => set({ canonicalUrl: e.target.value })} placeholder="Only if this content is a copy of a page elsewhere" /></label>
+                <label className="block"><span className="mb-1 block font-medium">Custom meta tags (one per line, <code>name: content</code>)</span>
+                  <textarea className={`${inputCls} font-mono text-xs`} rows={3} value={v.extraMeta} onChange={(e) => set({ extraMeta: e.target.value })} placeholder={"author: Jane Doe\npublisher: Acme Media"} /></label>
+                <label className="block"><span className="mb-1 block font-medium">Custom structured data (JSON-LD)</span>
+                  <textarea className={`${inputCls} font-mono text-xs`} rows={4} value={v.jsonLd} onChange={(e) => set({ jsonLd: e.target.value })} placeholder={'{"@context":"https://schema.org","@type":"Person","name":"Jane Doe"}'} />
+                  <span className="mt-1 block text-xs text-neutral-500">Must be valid JSON with a schema.org context. It is added to this page as-is (scripts cannot run from it).</span></label>
                 <label className="flex items-center gap-2"><input type="checkbox" checked={v.noindex} onChange={(e) => set({ noindex: e.target.checked })} /> Hide this page from search engines (noindex)</label>
               </div>
             </details>
