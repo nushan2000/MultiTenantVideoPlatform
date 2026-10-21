@@ -152,6 +152,41 @@ export async function saveThemeAction(slug: string, formData: FormData) {
   flash(path, "ok", "Theme saved");
 }
 
+export type CustomizeInput = {
+  name: string;
+  template: string;
+  preset: string;
+  primaryColor: string; bgColor: string; textColor: string;
+  font: string; radius: number; density: string;
+  search: boolean; categories: boolean;
+  customCss?: string;
+};
+
+/** Saves everything the step-by-step customizer edits in one go. Same plan rules as the Settings forms; returns a result instead of redirecting so the customizer keeps its state. */
+export async function saveCustomizationAction(slug: string, input: CustomizeInput): Promise<{ ok: true } | { ok: false; error: string }> {
+  const a = await requireTenant(slug, ["OWNER", "ADMIN"]);
+  try {
+    const name = z.string().trim().min(2, "Site name is too short").max(60).parse(input.name);
+    if (!isTemplateId(input.template)) throw new HttpError(400, "Unknown template");
+    const f = new FormData();
+    for (const k of ["preset", "primaryColor", "bgColor", "textColor", "font", "density"] as const) f.set(k, String(input[k]));
+    f.set("radius", String(input.radius));
+    if (input.customCss !== undefined) {
+      f.set("customCss", input.customCss);
+    }
+    const theme = themeFromForm(f, a.ent, parseTheme(a.tenant.theme));
+    const features = featuresSchema.parse({ ...featuresSchema.parse(a.tenant.features ?? {}), search: !!input.search, categories: !!input.categories });
+    await a.db.tenant.update({ where: { id: a.tenant.id }, data: { name, templateId: input.template, theme: theme as object, features: features as object } });
+    await invalidateTenant(a.tenant.id);
+    revalidatePath(`/dashboard/${slug}`, "layout");
+    return { ok: true };
+  } catch (e) {
+    if (e instanceof HttpError || e instanceof EntitlementError) return { ok: false, error: e.message };
+    if (e instanceof z.ZodError) return { ok: false, error: e.issues[0]?.message ?? "Invalid input" };
+    throw e;
+  }
+}
+
 export async function saveFeaturesAction(slug: string, formData: FormData) {
   const path = `/dashboard/${slug}/settings`;
   const a = await requireTenant(slug, ["OWNER", "ADMIN"]);

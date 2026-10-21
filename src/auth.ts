@@ -29,7 +29,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // Compare against a dummy hash when the user doesn't exist so timing doesn't reveal accounts.
         const hash = user?.passwordHash ?? dummyHash();
         const ok = await bcrypt.compare(password, hash);
-        if (!user || !ok) return null;
+        if (!user || !ok || user.suspendedAt) return null;
         return { id: user.id, email: user.email, name: user.name ?? undefined };
       },
     }),

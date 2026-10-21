@@ -15,8 +15,9 @@ export async function getUser(): Promise<SessionUser | null> {
   const session = await auth();
   const id = (session?.user as { id?: string } | undefined)?.id;
   if (!id) return null;
-  const u = await platformDb.user.findUnique({ where: { id }, select: { id: true, email: true, name: true, isSuperAdmin: true } });
-  return u;
+  const u = await platformDb.user.findUnique({ where: { id }, select: { id: true, email: true, name: true, isSuperAdmin: true, suspendedAt: true } });
+  if (!u || u.suspendedAt) return null; // a suspended account is signed out on its next request
+  return { id: u.id, email: u.email, name: u.name, isSuperAdmin: u.isSuperAdmin };
 }
 
 export async function requireUser(): Promise<SessionUser> {
@@ -37,16 +38,22 @@ export async function requestIp(): Promise<string> {
 
 /** Membership + tenant + plan entitlements. `by` is the tenant slug (pages) or id (APIs). */
 export async function loadTenantAccess(userId: string, by: { slug?: string; id?: string }, roles?: Role[]) {
-  const m = await platformDb.membership.findFirst({
-    where: { userId, tenant: by.slug ? { slug: by.slug } : { id: by.id } },
-    include: { tenant: { include: { plan: true } } },
-  });
-  if (!m) return null;
-  if (roles && !roles.includes(m.role)) return null;
-  const { tenant } = m;
+  const where = by.slug ? { slug: by.slug } : { id: by.id };
+  const m = await platformDb.membership.findFirst({ where: { userId, tenant: where }, include: { tenant: { include: { plan: true } } } });
+  let role: Role | undefined = m?.role;
+  let tenant = m?.tenant;
+  if (!tenant) {
+    // Super admins can open any site with OWNER rights, whether or not they are a member.
+    const admin = await platformDb.user.findUnique({ where: { id: userId }, select: { isSuperAdmin: true } });
+    if (!admin?.isSuperAdmin) return null;
+    tenant = (await platformDb.tenant.findFirst({ where, include: { plan: true } })) ?? undefined;
+    role = "OWNER";
+  }
+  if (!tenant || !role) return null;
+  if (roles && !roles.includes(role)) return null;
   return {
     user: userId,
-    role: m.role,
+    role,
     tenant,
     planKey: tenant.plan.key,
     ent: entitlements(tenant.plan.key),
@@ -60,7 +67,7 @@ export async function requireTenant(slug: string, roles?: Role[]): Promise<Tenan
   const user = await requireUser();
   const access = await loadTenantAccess(user.id, { slug }, roles);
   if (!access) redirect("/dashboard");
-  if (access.tenant.status === "SUSPENDED") redirect("/dashboard?suspended=1");
+  if (access.tenant.status === "SUSPENDED" && !user.isSuperAdmin) redirect("/dashboard?suspended=1");
   return { ...access, userRow: user };
 }
 
@@ -70,7 +77,7 @@ export async function apiTenant(tenantId: string, roles?: Role[]): Promise<Tenan
   if (!user) throw new HttpError(401, "Please sign in", "unauthenticated");
   const access = await loadTenantAccess(user.id, { id: tenantId }, roles);
   if (!access) throw new HttpError(404, "Site not found", "not_found"); // 404, not 403: don't confirm other tenants exist
-  if (access.tenant.status === "SUSPENDED") throw new HttpError(403, "This site is suspended", "suspended");
+  if (access.tenant.status === "SUSPENDED" && !user.isSuperAdmin) throw new HttpError(403, "This site is suspended", "suspended");
   return { ...access, userRow: user, ip: await requestIp() };
 }
 
