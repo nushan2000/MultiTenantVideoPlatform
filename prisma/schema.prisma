@@ -86,6 +86,7 @@ model User {
   passwordHash  String
   name          String?
   isSuperAdmin  Boolean      @default(false)
+  suspendedAt   DateTime?
   termsAcceptedAt DateTime
   createdAt     DateTime     @default(now())
   memberships   Membership[]

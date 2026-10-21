@@ -69,6 +69,9 @@ export type WatchProps = {
 export type Template = {
   id: string;
   name: string;
+  description: string;
+  /** Starting look when a tenant picks this template: a key of THEME_PRESETS plus a density. Tenants can change both afterwards. */
+  defaults: { preset: string; density: Theme["density"] };
   Shell: (p: ShellProps) => ReactNode;
   Home: (p: HomeProps) => ReactNode;
   Listing: (p: ListingProps) => ReactNode;

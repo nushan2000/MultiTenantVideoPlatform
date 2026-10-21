@@ -239,4 +239,6 @@ function Watch({ video, related, player, actions, report, breadcrumbs, tags, cha
   );
 }
 
-export const classicGrid: Template = { id: "classic-grid", name: "Classic grid", Shell, Home, Listing, Categories, Page, Watch };
+export const classicGrid: Template = {
+  id: "classic-grid", name: "Classic grid", description: "Light, spacious and rounded, with category chips and a featured row.",
+  defaults: { preset: "classic", density: "comfortable" }, Shell, Home, Listing, Categories, Page, Watch };
