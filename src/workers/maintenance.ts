@@ -1,11 +1,13 @@
 import "dotenv/config";
 import { Worker } from "bullmq";
+import { flushBandwidth } from "@/lib/bandwidth";
 import { platformDb } from "@/lib/db/client";
 import { verifyDomain } from "@/lib/domains";
 import { dropUploadSession, getUploadSession } from "@/lib/ingest/direct";
 import { failVideo } from "@/lib/ingest/finalize";
 import { maintenanceQueue, QUEUES } from "@/lib/ingest/queues";
 import { logger } from "@/lib/logger";
+import { publishDueVideos } from "@/lib/scheduling";
 import { bullConnection } from "@/lib/redis";
 import { abortMultipart, deletePrefix, keys } from "@/lib/storage";
 
@@ -37,6 +39,8 @@ const worker = new Worker(
   async (job) => {
     if (job.name === "sweep-uploads") return sweepUploads();
     if (job.name === "verify-domains") return verifyDomains();
+    if (job.name === "publish-scheduled") return publishDueVideos();
+    if (job.name === "flush-bandwidth") return flushBandwidth();
   },
   { connection: bullConnection(), concurrency: 1 },
 );
@@ -46,7 +50,9 @@ worker.on("error", (err) => logger.error({ err: String(err) }, "maintenance work
   const q = maintenanceQueue();
   await q.upsertJobScheduler("sweep-uploads", { every: 10 * 60_000 }, { name: "sweep-uploads" });
   await q.upsertJobScheduler("verify-domains", { every: 60_000 }, { name: "verify-domains" });
-  logger.info("maintenance worker started (domain verification every 60s, upload sweep every 10m)");
+  await q.upsertJobScheduler("publish-scheduled", { every: 60_000 }, { name: "publish-scheduled" });
+  await q.upsertJobScheduler("flush-bandwidth", { every: 60_000 }, { name: "flush-bandwidth" });
+  logger.info("maintenance worker started (domains, scheduled publishing and bandwidth flush every 60s; upload sweep every 10m)");
 })();
 
 const stop = async () => {

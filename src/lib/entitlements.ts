@@ -20,6 +20,12 @@ export type Entitlements = {
   canRemoveBadge: boolean;
   canUseAnalytics: boolean;
   maxDurationSec: number;
+  /** Bytes of video/thumbnails served per calendar month. Over the limit, playback is refused until next month or an upgrade. */
+  bandwidthLimitBytes: number;
+  /** Days of history on the analytics tab. */
+  analyticsDays: number;
+  /** Automatic captions + transcript (needs WHISPER_COMMAND on the server). CPU-heavy, so plan-gated. */
+  canUseTranscription: boolean;
 };
 
 // Restricting URL import to premium later = flip `canUseUrlImport` on the free row.
@@ -40,6 +46,9 @@ export const PLAN_CONFIG: Record<PlanKey, Entitlements> = {
     canRemoveBadge: false,
     canUseAnalytics: false,
     maxDurationSec: 2 * 3600,
+    bandwidthLimitBytes: 100 * GB,
+    analyticsDays: 7,
+    canUseTranscription: false,
   },
   premium: {
     canUseCustomDomain: true,
@@ -57,6 +66,9 @@ export const PLAN_CONFIG: Record<PlanKey, Entitlements> = {
     canRemoveBadge: true,
     canUseAnalytics: true,
     maxDurationSec: 8 * 3600,
+    bandwidthLimitBytes: 2048 * GB,
+    analyticsDays: 90,
+    canUseTranscription: true,
   },
 };
 

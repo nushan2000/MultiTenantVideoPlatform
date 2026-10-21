@@ -6,6 +6,8 @@ import { HttpError } from "@/lib/ingest/types";
 import { pageInputSchema, pageSlugCheck } from "@/lib/pages/input";
 import { systemPageByKey } from "@/lib/pages/system";
 import { slugifyHandle } from "@/lib/seo";
+import { notifyPaths } from "@/lib/seo-notify";
+import { invalidateTenant } from "@/lib/tenancy/resolve";
 
 const body = pageInputSchema.extend({ slug: z.string().optional(), systemKey: z.string().optional() });
 
@@ -24,6 +26,8 @@ export const POST = route(async (req, { params }: { params: Promise<{ tenantId: 
       data: { slug: def.slug, systemKey: def.key, title: input.title, content: input.content, published: def.mandatory ? true : input.published, inFooter: def.mandatory ? true : input.inFooter, seo: input.seo as object } as any,
     });
     await audit({ action: "page.customised", tenantId, userId: a.userRow.id, target: page.id, metadata: { key: def.key } });
+    await invalidateTenant(tenantId);
+    await notifyPaths(tenantId, [`/${page.slug}`, "/sitemap"]);
     return { id: page.id, slug: page.slug };
   }
 
@@ -37,5 +41,7 @@ export const POST = route(async (req, { params }: { params: Promise<{ tenantId: 
     data: { slug, title: input.title, content: input.content, published: input.published, inFooter: input.inFooter, position: count, seo: input.seo as object } as any,
   });
   await audit({ action: "page.created", tenantId, userId: a.userRow.id, target: page.id, metadata: { slug } });
+  await invalidateTenant(tenantId);
+  await notifyPaths(tenantId, [`/${page.slug}`, "/sitemap"]);
   return { id: page.id, slug: page.slug };
 });

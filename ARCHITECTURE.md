@@ -125,6 +125,16 @@ These are templates, not legal advice; the dashboard says so.
 - **Age gate vs indexing:** verified search-engine crawlers (forward-confirmed reverse DNS, not just a User-Agent) may read gated content when the owner leaves *crawler access* on (default); spoofed crawlers stay gated.
 - **Owner controls:** custom `<meta>` tags and JSON-LD per page/site (validated, platform-managed names refused, scripts can't run), bulk title/description editing via CSV export/import, duplicate-title detection, social-card preview, theme contrast check (WCAG 4.5:1 text, 3:1 accent).
 
+## Engagement, curation, analytics, bandwidth
+- **Comments & likes** (tables `Comment`, `VideoLike`, both RLS-protected): storefront visitors have no accounts, so comments are anonymous, **moderated** (default `PENDING`; owner can auto-approve), rate-limited per IP, honeypot-protected, max 2 links, plain text only. Only an HMAC of the IP is stored. Likes are one per (video, visitor hash); `Video.likes` is a denormalised counter updated with raw SQL (never bumps `updatedAt`). Owners moderate in *Dashboard → Comments*. Both are switched on in Settings → Features.
+- **Playlists** (`Playlist`, `PlaylistItem`): hand-ordered lists, `/playlist/<slug>`, footer links, sitemap entries (2+ public videos), `ItemList` JSON-LD. Edited in *Dashboard → Playlists*.
+- **Analytics** (`VideoStatDaily`): daily views and watch seconds per video. The player sends batched heartbeats to `/api/public/watch` (capped, rate-limited). Free plans see 7 days, Premium 90 (`analyticsDays`).
+- **Bandwidth** (`BandwidthUsage` + Redis counter): `/api/media` meters served bytes per tenant per month and answers 429 for HLS once the plan's `bandwidthLimitBytes` is used up (thumbnails/captions keep working). The access decision per video is cached 15 s in Redis (`media-cache.ts`; invalidated on visibility change, takedown, delete).
+- **Scheduled publishing:** `Video.publishAt`; the video stays PRIVATE and the maintenance worker makes it PUBLIC at that time (+ IndexNow). Choosing a visibility by hand cancels the schedule.
+- **Custom thumbnails:** `POST /api/videos/:id/thumbnail`, magic-byte validated, re-encoded to the two JPEG sizes by ffmpeg.
+- **Scanning:** `ContentScanner` is now built from the environment: ClamAV (`CLAMD_HOST`) and/or a moderation webhook (`SCAN_WEBHOOK_URL`); `SCANNER_REQUIRED=true` makes the platform fail closed. **Hash-matching for illegal content still needs a provider you contract.**
+- **Captions:** `WHISPER_COMMAND` (local whisper.cpp-style CLI) creates WebVTT + transcript after a video is READY, Premium only.
+
 ## Trust & safety
 Terms/AUP acceptance stored at signup; per-tenant `contentCategory`. Adult tenants: mandatory age-gate (enforced in every page, not just the
 layout, because Next streams page payloads), RTA meta, optional noindex, ad networks that disallow adult content blocked. Abuse/DMCA form on every
@@ -136,13 +146,14 @@ Storefront CSP + `nosniff`; tenant ad HTML is sanitised (no scripts, sandboxed i
 ## Known gaps / follow-ups
 - **SEO**: page language comes from the site locale only; no hreflang/multi-language; no manual redirect manager (redirects are created when a handle changes); deleted videos return 404 not 410; automatic transcription (Whisper) and Search Console API integration are not built (owners can upload captions/transcripts and verify via meta tag); a streaming 404 is delivered through the client payload (status + noindex are correct).
 - **Contact page** shows the owner's email/address; there is no built-in contact form (needs a mail service).
-- **Comments and likes**: toggles exist but no tables (needs a data-model addition: ask first). **Downloads**: toggle forced off.
+- **Downloads**: toggle forced off. Comments have no replies, editing or visitor accounts; likes are anonymous (a determined visitor can rotate IP/user agent).
 - **Import worker network isolation**: the worker reads Postgres/Redis directly, so it cannot be fully cut off from them. The SSRF guard is the main
   defence; add firewall rules (see docs/DEPLOY-VPS.md). A stricter design has the worker call an internal API instead of the DB.
 - **CSP** is static (`'unsafe-inline'` scripts because of Next's bootstrap); per-tenant/nonce CSP is a follow-up.
 - Reservation covers the source size; HLS renditions add ~15-60% on top, which settles as real usage (a tenant can briefly overshoot its limit by that).
-- `/api/media` hits the DB per request; cache the visibility lookup or serve via CDN signed URLs at scale.
-- The scanner is a stub; no virus scan beyond ffprobe validation.
+- `/api/media` caches the access decision for 15 s; at scale serve via a CDN with signed URLs for PRIVATE videos. Bandwidth metering only sees origin traffic.
+- The default scanner is still a stub unless ClamAV / a webhook is configured. Illegal-content detection needs a contracted provider and legal review.
+- Automatic captions are English-only by default (`WHISPER_LANGUAGE`); no translation.
 
 ## Scaling roadmap
 1. **Now (single VPS):** everything on one box; storage on local disk via MinIO; workers as systemd services.

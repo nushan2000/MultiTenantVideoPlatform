@@ -72,6 +72,12 @@ enum ReportStatus {
   DISMISSED
 }
 
+enum CommentStatus {
+  PENDING
+  APPROVED
+  HIDDEN
+}
+
 enum SubscriptionStatus {
   ACTIVE
   PAST_DUE
@@ -131,6 +137,12 @@ model Tenant {
   storageUsage  StorageUsage?
   reports       Report[]
   auditLogs     AuditLog[]
+  comments      Comment[]
+  likes         VideoLike[]
+  playlists     Playlist[]
+  playlistItems PlaylistItem[]
+  videoStats    VideoStatDaily[]
+  bandwidth     BandwidthUsage[]
 }
 
 model Membership {
@@ -213,15 +225,23 @@ model Video {
   importProgress    Int          @default(0) // percent; live byte counts live in Redis
   failureReason     String?
   rightsConfirmedAt DateTime?
+  likes             Int          @default(0) // denormalised count of VideoLike rows
+  publishAt         DateTime?    // scheduled publishing: the maintenance worker makes the video PUBLIC at this time
   createdAt         DateTime     @default(now())
   updatedAt         DateTime     @updatedAt
 
-  tenant     Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  category   Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  renditions VideoRendition[]
-  reports    Report[]
+  tenant        Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  category      Category?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  renditions    VideoRendition[]
+  reports       Report[]
+  comments      Comment[]
+  videoLikes    VideoLike[]
+  playlistItems PlaylistItem[]
+  stats         VideoStatDaily[]
 
   @@index([tenantId, status, createdAt])
+  @@index([publishAt])
+  @@index([tags], type: Gin)
 }
 
 model VideoRendition {
@@ -314,4 +334,100 @@ model Page {
   @@unique([tenantId, slug])
   @@unique([tenantId, systemKey])
   @@index([tenantId, published])
+}
+
+// ---------------------------------------------------------------- engagement, curation, analytics, bandwidth
+
+// Anonymous viewers (no accounts on storefronts): comments are moderated, spam-limited and hash their IP, never store it raw.
+model Comment {
+  id         String        @id @default(cuid())
+  tenantId   String
+  videoId    String
+  authorName String
+  body       String
+  status     CommentStatus @default(PENDING)
+  ipHash     String?
+  createdAt  DateTime      @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  video  Video  @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status, createdAt])
+  @@index([videoId, status, createdAt])
+}
+
+// One like per (video, voter). voterHash = HMAC(ip + user agent), so the same visitor can't like twice but we never keep the IP.
+model VideoLike {
+  id        String   @id @default(cuid())
+  tenantId  String
+  videoId   String
+  voterHash String
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  video  Video  @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@unique([videoId, voterHash])
+  @@index([tenantId])
+}
+
+model Playlist {
+  id          String   @id @default(cuid())
+  tenantId    String
+  title       String
+  slug        String
+  description String?
+  published   Boolean  @default(true)
+  position    Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  items  PlaylistItem[]
+
+  @@unique([tenantId, slug])
+  @@index([tenantId, published, position])
+}
+
+model PlaylistItem {
+  id         String @id @default(cuid())
+  tenantId   String
+  playlistId String
+  videoId    String
+  position   Int    @default(0)
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  playlist Playlist @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  video    Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@unique([playlistId, videoId])
+  @@index([playlistId, position])
+}
+
+// Per-video, per-day counters for the analytics tab. Written with raw upserts (never touches Video.updatedAt).
+model VideoStatDaily {
+  id           String   @id @default(cuid())
+  tenantId     String
+  videoId      String
+  day          DateTime @db.Date
+  views        Int      @default(0)
+  watchSeconds Int      @default(0)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  video  Video  @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@unique([videoId, day])
+  @@index([tenantId, day])
+}
+
+// Bytes served per tenant per calendar month (month = "YYYY-MM"). Live counter is in Redis; the maintenance worker persists it here.
+model BandwidthUsage {
+  id       String @id @default(cuid())
+  tenantId String
+  month    String
+  bytes    BigInt @default(0)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, month])
 }

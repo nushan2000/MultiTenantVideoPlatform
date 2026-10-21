@@ -29,6 +29,17 @@ const schema = z.object({
   FFMPEG_PATH: optional,
   FFPROBE_PATH: optional,
   IMPORT_WORKER_CONCURRENCY: z.coerce.number().int().min(1).default(4),
+  // Content scanning (all optional; see src/lib/safety/providers.ts)
+  CLAMD_HOST: optional,
+  CLAMD_PORT: z.coerce.number().int().min(1).max(65535).default(3310),
+  SCAN_WEBHOOK_URL: optionalUrl,
+  SCAN_WEBHOOK_TOKEN: optional,
+  /** "true": videos are never published while no scanner is configured (recommended in production). */
+  SCANNER_REQUIRED: z.enum(["true", "false"]).default("false"),
+  // Automatic captions. Template with {input} (16 kHz mono wav) and {output} (path WITHOUT extension; the tool must write {output}.vtt)
+  // e.g. whisper.cpp:  /opt/whisper/whisper-cli -m /opt/whisper/ggml-base.bin -f {input} -ovtt -of {output}
+  WHISPER_COMMAND: optional,
+  WHISPER_LANGUAGE: z.string().regex(/^[a-z]{2,3}$/).default("en"),
   TRANSCODE_WORKER_CONCURRENCY: z.coerce.number().int().min(1).default(1),
 });
 

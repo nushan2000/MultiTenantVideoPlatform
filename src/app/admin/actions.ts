@@ -1,5 +1,6 @@
 "use server";
 
+import { invalidateMediaCache } from "@/lib/media-cache";
 import bcrypt from "bcryptjs";
 import { redirect } from "next/navigation";
 import { z } from "zod";
@@ -26,6 +27,7 @@ export async function setTenantStatusAction(tenantId: string, status: "ACTIVE" |
 export async function blockVideoAction(videoId: string) {
   const admin = await requireSuperAdmin();
   const v = await platformDb.video.update({ where: { id: videoId }, data: { status: "BLOCKED", failureReason: "Blocked by platform admin" }, select: { tenantId: true } });
+  await invalidateMediaCache(v.tenantId, videoId);
   await audit({ action: "admin.video_blocked", tenantId: v.tenantId, userId: admin.id, target: videoId, ip: await requestIp() });
   back("Video blocked");
 }
@@ -37,6 +39,7 @@ export async function adminReportAction(reportId: string, action: "takedown" | "
   if (action === "takedown") {
     await platformDb.video.update({ where: { id: r.videoId }, data: { status: "BLOCKED", failureReason: "Removed after a report" } });
     await platformDb.report.update({ where: { id: reportId }, data: { status: "ACTIONED" } });
+    await invalidateMediaCache(r.tenantId, r.videoId);
   } else {
     await platformDb.report.update({ where: { id: reportId }, data: { status: "DISMISSED" } });
   }

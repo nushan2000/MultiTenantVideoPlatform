@@ -5,6 +5,7 @@ import { failVideo } from "@/lib/ingest/finalize";
 import { deadLetterQueue, QUEUES, type TranscodeJob } from "@/lib/ingest/queues";
 import { logger } from "@/lib/logger";
 import { bullConnection } from "@/lib/redis";
+import { transcribeVideo } from "@/lib/transcribe";
 import { ProcessError, processVideo } from "@/lib/transcode";
 
 const env = getEnv();
@@ -14,7 +15,10 @@ const worker = new Worker<TranscodeJob>(
   async (job) => {
     const { tenantId, videoId } = job.data;
     try {
-      return await processVideo(tenantId, videoId);
+      const outcome = await processVideo(tenantId, videoId);
+      // Automatic captions come after the video is already live and must never fail the job.
+      if (outcome === "ready") await transcribeVideo(tenantId, videoId).catch((err) => logger.warn({ videoId, err: String(err) }, "automatic captions failed"));
+      return outcome;
     } catch (err) {
       const retryable = err instanceof ProcessError ? err.retryable : true;
       const lastAttempt = job.attemptsMade + 1 >= (job.opts.attempts ?? 1);

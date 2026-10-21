@@ -16,6 +16,12 @@ export const TENANT_KEY: Record<string, "tenantId" | "id"> = {
   Report: "tenantId",
   AuditLog: "tenantId",
   Page: "tenantId",
+  Comment: "tenantId",
+  VideoLike: "tenantId",
+  Playlist: "tenantId",
+  PlaylistItem: "tenantId",
+  VideoStatDaily: "tenantId",
+  BandwidthUsage: "tenantId",
 };
 
 type AnyArgs = Record<string, any>;

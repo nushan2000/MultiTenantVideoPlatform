@@ -13,6 +13,12 @@ type Props = {
   role: string;
 };
 
+const svg = (d: string) => (active: boolean) => (
+  <svg className={`h-4 w-4 ${active ? "text-blue-600" : "text-neutral-500"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={d} />
+  </svg>
+);
+
 const TABS: { href: string; label: string; icon: (active: boolean) => ReactNode; badge?: string }[] = [
   {
     href: "",
@@ -51,6 +57,8 @@ const TABS: { href: string; label: string; icon: (active: boolean) => ReactNode;
       </svg>
     ),
   },
+  { href: "/playlists", label: "Playlists", icon: svg("M4 6h16M4 10h16M4 14h10m4 0v6m-3-3h6") },
+  { href: "/comments", label: "Comments", icon: svg("M8 10h8M8 14h5m-9 6l2.5-3H18a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v14z") },
   {
     href: "/pages",
     label: "Pages",
@@ -69,6 +77,7 @@ const TABS: { href: string; label: string; icon: (active: boolean) => ReactNode;
       </svg>
     ),
   },
+  { href: "/analytics", label: "Analytics", icon: svg("M9 19V9m4 10V5m4 14v-7M5 19v-4") },
   {
     href: "/domains",
     label: "Domain",

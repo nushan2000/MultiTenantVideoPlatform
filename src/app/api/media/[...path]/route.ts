@@ -1,6 +1,8 @@
 import { Readable } from "node:stream";
 import { getUser, loadTenantAccess } from "@/lib/access";
-import { platformDb } from "@/lib/db/client";
+import { addBandwidth, bandwidthUsed } from "@/lib/bandwidth";
+import { entitlements } from "@/lib/entitlements";
+import { mediaAccess } from "@/lib/media-cache";
 import { getObject } from "@/lib/storage";
 
 export const dynamic = "force-dynamic";
@@ -20,6 +22,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ path: st
   const [, tenantId, kind, ...rest] = path;
   const key = path.join("/");
   let cache = "public, max-age=3600";
+  let meterTenant: string | null = null;
 
   if (kind === "branding") {
     if (rest.length !== 1) return notFound();
@@ -30,11 +33,13 @@ export async function GET(req: Request, { params }: { params: Promise<{ path: st
     const isCaption = area === "captions" && file.length === 1 && /^[a-z]{2,3}(-[A-Za-z0-9]{2,8})?\.vtt$/.test(file[0]);
     if (!videoId || !(isHls || isThumb || isCaption)) return notFound();
 
-    const video = await platformDb.video.findFirst({
-      where: { id: videoId, tenantId },
-      select: { status: true, visibility: true, tenant: { select: { status: true } } },
-    });
-    if (!video || video.status !== "READY" || video.tenant.status !== "ACTIVE") return notFound();
+    const video = await mediaAccess(tenantId, videoId);
+    if (!video || video.status !== "READY" || video.tenantStatus !== "ACTIVE") return notFound();
+    meterTenant = tenantId;
+    // Monthly bandwidth allowance: playlists and segments stop when it is used up (thumbnails and captions keep working so the site still renders).
+    if (isHls && (await bandwidthUsed(tenantId)) >= entitlements(video.planKey).bandwidthLimitBytes) {
+      return new Response("This site has reached its monthly bandwidth limit. Playback resumes next month.", { status: 429, headers: { "retry-after": "3600", "cache-control": "no-store" } });
+    }
     if (video.visibility === "PRIVATE") {
       const user = await getUser();
       const access = user && (await loadTenantAccess(user.id, { id: tenantId }));
@@ -62,7 +67,10 @@ export async function GET(req: Request, { params }: { params: Promise<{ path: st
       "x-content-type-options": "nosniff",
       ...(key.includes("/hls/") ? { "x-robots-tag": "noindex, nofollow" } : {}),
     });
-    if (obj.ContentLength != null) headers.set("content-length", String(obj.ContentLength));
+    if (obj.ContentLength != null) {
+      headers.set("content-length", String(obj.ContentLength));
+      if (meterTenant) void addBandwidth(meterTenant, obj.ContentLength);
+    }
     if (obj.ContentRange) headers.set("content-range", obj.ContentRange);
     return new Response(Readable.toWeb(obj.Body as Readable) as ReadableStream, { status: range ? 206 : 200, headers });
   } catch (e: any) {

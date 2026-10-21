@@ -3,6 +3,8 @@ import type { Metadata } from "next";
 import { notFound, permanentRedirect } from "next/navigation";
 import { preload } from "react-dom";
 import ChapterList from "@/components/ChapterList";
+import Comments from "@/components/Comments";
+import LikeButton from "@/components/LikeButton";
 import HlsPlayer from "@/components/HlsPlayer";
 import JsonLd from "@/components/JsonLd";
 import ReportForm from "@/components/ReportForm";
@@ -89,6 +91,13 @@ export default async function Watch({ params }: { params: Promise<{ host: string
   ];
   if (poster) preload(poster, { as: "image", fetchPriority: "high" }); // the player poster is the LCP element
 
+  const [comments, commentCount] = features.comments
+    ? await Promise.all([
+        db.comment.findMany({ where: { videoId: video.id, status: "APPROVED" }, orderBy: { createdAt: "desc" }, take: 50, select: { id: true, authorName: true, body: true, createdAt: true } }),
+        db.comment.count({ where: { videoId: video.id, status: "APPROVED" } }),
+      ])
+    : [[], 0];
+
   return (
     <>
       <JsonLd
@@ -101,7 +110,11 @@ export default async function Watch({ params }: { params: Promise<{ host: string
             inLanguage: (siteSeo.locale ?? "en").replace("_", "-"), isFamilyFriendly: tenant.contentCategory !== "ADULT",
             keywords: [...vseo.keywords, ...tags.map(tagLabel), ...siteSeo.keywords].slice(0, 15).join(", ") || undefined,
             transcript: video.transcript ? (video.transcript as string).slice(0, 5000) : undefined,
-            interactionStatistic: { "@type": "InteractionCounter", interactionType: { "@type": "WatchAction" }, userInteractionCount: video.views },
+            interactionStatistic: [
+              { "@type": "InteractionCounter", interactionType: { "@type": "WatchAction" }, userInteractionCount: video.views },
+              ...(features.likes ? [{ "@type": "InteractionCounter", interactionType: { "@type": "LikeAction" }, userInteractionCount: video.likes }] : []),
+              ...(features.comments ? [{ "@type": "InteractionCounter", interactionType: { "@type": "CommentAction" }, userInteractionCount: commentCount }] : []),
+            ],
             publisher: { "@type": "Organization", name: siteSeo.organizationName || tenant.name, logo: tenant.logoUrl ? { "@type": "ImageObject", url: absoluteUrl(origin, tenant.logoUrl) } : undefined },
             // chapters become Google "key moments"
             hasPart: chapters.length ? chapters.map((c, i) => ({ "@type": "Clip", name: c.title, startOffset: c.start, endOffset: chapters[i + 1]?.start ?? video.durationSec ?? c.start + 1, url: `${canonical}?t=${c.start}` })) : undefined,
@@ -119,7 +132,13 @@ export default async function Watch({ params }: { params: Promise<{ host: string
         tags={tags.map((t) => ({ title: tagLabel(t), href: `/tag/${t}` }))}
         chapters={<ChapterList chapters={chapters} />}
         transcript={video.transcript}
-        actions={<ShareButton url={canonical} embedUrl={`${origin}/embed/${video.id}`} title={video.title} />}
+        actions={
+          <>
+            {features.likes ? <LikeButton videoId={video.id} initialLikes={video.likes} /> : null}
+            <ShareButton url={canonical} embedUrl={`${origin}/embed/${video.id}`} title={video.title} />
+          </>
+        }
+        comments={features.comments ? <Comments videoId={video.id} total={commentCount} initial={comments.map((c) => ({ id: c.id, authorName: c.authorName, body: c.body, createdAt: c.createdAt.toISOString() }))} /> : undefined}
         player={<HlsPlayer src={mediaUrl(video.hlsPath)!} poster={poster} videoId={video.id} vastTagUrl={ads.vastTagUrl} tracks={captions.map((c) => ({ lang: c.lang, label: c.label, src: mediaUrl(c.path)! }))} />}
         report={<ReportForm videoId={video.id} />}
       />

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { Field, Locked, btnCls, btnGhostCls, inputCls } from "@/components/ui";
 import {
@@ -12,19 +13,24 @@ import {
   validateCustomCss,
   type Theme,
 } from "@/lib/theme";
+import { footerGroups, navLinksFor, type FooterPage } from "@/lib/pages/footer";
 import { getTemplate } from "@/templates/registry";
 import type { StoreVideo } from "@/templates/types";
 import { saveCustomizationAction, type CustomizeInput } from "../../actions";
 
 type Props = {
   slug: string;
+  tenantId: string;
+  faviconUrl: string | null;
+  pages: FooterPage[];
+  samplePage: { title: string; html: string } | null;
   templateId: string;
   templates: { id: string; name: string; description: string; defaults: { preset: string; density: Theme["density"] } }[];
   name: string;
   logoUrl: string | null;
   categoryNames: string[];
   theme: Theme;
-  features: { search: boolean; categories: boolean };
+  features: { search: boolean; categories: boolean; comments: boolean; likes: boolean };
   canUseCustomTheme: boolean;
   canUseCustomCss?: boolean;
   planKey?: string;
@@ -45,16 +51,10 @@ const TABS: { id: TabId; label: string; icon: string; hint: string; focus: strin
   { id: "review", label: "Review & Publish", icon: "🚀", hint: "Inspect visual diff and publish to live site", focus: "" },
 ];
 
-const CURATED_PRESETS: { key: string; label: string; primary: string; bg: string; text: string; tag: string }[] = [
-  { key: "classic", label: "Classic Slate", primary: "#2563eb", bg: "#ffffff", text: "#111827", tag: "Light" },
-  { key: "midnight", label: "Midnight Cyber", primary: "#38bdf8", bg: "#0f172a", text: "#e5e7eb", tag: "Dark" },
-  { key: "forest", label: "Emerald Clean", primary: "#15803d", bg: "#f7fdf9", text: "#14231a", tag: "Natural" },
-  { key: "sunset", label: "Sunset Amber", primary: "#ea580c", bg: "#fff7ed", text: "#2b1608", tag: "Warm" },
-  { key: "royal", label: "Royal Violet", primary: "#7c3aed", bg: "#faf5ff", text: "#1e1035", tag: "Vibrant" },
-  { key: "obsidian", label: "Obsidian Neon", primary: "#06b6d4", bg: "#090d16", text: "#f1f5f9", tag: "High-Contrast" },
-  { key: "crimson", label: "Crimson Noir", primary: "#e11d48", bg: "#0c0a09", text: "#fafaf9", tag: "Cinematic" },
-  { key: "nordic", label: "Nordic Frost", primary: "#0284c7", bg: "#f8fafc", text: "#0f172a", tag: "Minimal" },
-];
+// One source of truth with the server (THEME_PRESETS): a preset shown here is always one the server accepts.
+const CURATED_PRESETS = Object.entries(THEME_PRESETS).map(([key, p]) => ({
+  key, label: p.label, tag: p.tag, primary: p.theme.primaryColor!, bg: p.theme.bgColor!, text: p.theme.textColor!,
+}));
 
 const CSS_SNIPPETS = [
   {
@@ -137,10 +137,12 @@ export function Customizer(p: Props) {
   const [d, setD] = useState<Draft>(initial);
   const [activeTab, setActiveTab] = useState<TabId>("templates");
   const [device, setDevice] = useState<"desktop" | "tablet" | "mobile">("desktop");
-  const [previewPage, setPreviewPage] = useState<"home" | "watch" | "categories">("home");
+  const [previewPage, setPreviewPage] = useState<"home" | "watch" | "categories" | "page">("home");
   const [zoom, setZoom] = useState<100 | 85 | 75>(100);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [saving, startSave] = useTransition();
+  const [logoUrl, setLogoUrl] = useState(p.logoUrl);
+  const [faviconUrl, setFaviconUrl] = useState(p.faviconUrl);
 
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => {
     setD((x) => ({ ...x, [k]: v }));
@@ -250,10 +252,11 @@ export function Customizer(p: Props) {
   );
 
   const features = {
-    comments: false,
+    comments: p.features.comments,
     categories: d.categories,
     search: d.search,
-    likes: false,
+    likes: p.features.likes,
+    commentsAutoApprove: false,
     ageGate: false,
     downloads: false,
     noindex: false,
@@ -364,6 +367,7 @@ export function Customizer(p: Props) {
                 { id: "home", label: "Home" },
                 { id: "watch", label: "Watch" },
                 { id: "categories", label: "Categories" },
+                { id: "page", label: "Page" },
               ] as const
             ).map((v) => (
               <button
@@ -381,6 +385,11 @@ export function Customizer(p: Props) {
 
           {/* Actions */}
           <div className="flex items-center gap-2">
+            {p.siteUrl && (
+              <a href={p.siteUrl} target="_blank" rel="noreferrer" className="rounded-xl border border-neutral-200 px-3 py-1.5 text-xs font-semibold text-neutral-600 hover:bg-neutral-100 transition-colors">
+                View live ↗
+              </a>
+            )}
             {dirty && (
               <button
                 type="button"
@@ -530,36 +539,16 @@ export function Customizer(p: Props) {
                   </div>
                 </Field>
 
-                <div className="rounded-xl border border-neutral-200 bg-neutral-50/60 p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-xs font-semibold text-neutral-700">Logo & Branding Asset</span>
-                    <Link
-                      href={`/dashboard/${p.slug}/settings`}
-                      className="text-xs font-medium text-blue-600 hover:underline"
-                    >
-                      Manage in Settings →
-                    </Link>
-                  </div>
-
-                  <div className="flex items-center gap-3.5 rounded-lg border border-neutral-200/80 bg-white p-3">
-                    {p.logoUrl ? (
-                      <div className="flex h-12 w-20 shrink-0 items-center justify-center rounded-md border border-neutral-100 bg-neutral-50 p-1">
-                        <img src={p.logoUrl} alt="Logo preview" className="max-h-full max-w-full object-contain" />
-                      </div>
-                    ) : (
-                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-600 text-white font-bold text-base">
-                        {d.name.slice(0, 2).toUpperCase() || "VP"}
-                      </div>
-                    )}
-                    <div className="text-xs text-neutral-600 leading-normal">
-                      {p.logoUrl ? (
-                        <span>Custom logo is active and displayed in the live preview.</span>
-                      ) : (
-                        <span>No custom logo uploaded yet. An SVG monogram is automatically rendered.</span>
-                      )}
-                    </div>
-                  </div>
-                </div>
+                <BrandImage tenantId={p.tenantId} kind="logo" label="Logo" current={logoUrl} canEdit={p.canEdit} onDone={setLogoUrl}
+                  fallback={<div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-600 text-white font-bold text-base">{d.name.slice(0, 2).toUpperCase() || "VP"}</div>}
+                  hint="Shown in the header and in structured data. PNG, JPEG or WebP, up to 1 MB." />
+                <BrandImage tenantId={p.tenantId} kind="favicon" label="Favicon" current={faviconUrl} canEdit={p.canEdit} onDone={setFaviconUrl}
+                  fallback={<div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-dashed border-neutral-300 text-[10px] text-neutral-400">none</div>}
+                  hint="Browser tab icon (also used by search results). Square, at least 48×48 px." />
+                <p className="text-xs text-neutral-500">
+                  Social share image and search listings are in <Link className="text-blue-600 hover:underline" href={`/dashboard/${p.slug}/seo`}>SEO</Link>.
+                  Logo and favicon upload immediately; the other settings publish with Save.
+                </p>
               </div>
             )}
 
@@ -1129,7 +1118,7 @@ export function Customizer(p: Props) {
                 </svg>
                 <span>{p.siteUrl || `https://${p.slug}.videoplatform.com`}</span>
                 <span className="text-slate-500">
-                  {previewPage === "watch" ? "/v/sample-0" : previewPage === "categories" ? "/categories" : "/"}
+                  {previewPage === "watch" ? "/v/sample-0" : previewPage === "categories" ? "/categories" : previewPage === "page" ? `/${p.pages.find((x) => x.title === p.samplePage?.title)?.slug ?? "about"}` : "/"}
                 </span>
               </div>
             </div>
@@ -1211,18 +1200,12 @@ export function Customizer(p: Props) {
 
               {/* Render Selected Storefront Template Shell */}
               <Template.Shell
-                tenant={{ name: d.name || "Your Site Name", logoUrl: p.logoUrl }}
+                tenant={{ name: d.name || "Your Site Name", logoUrl }}
                 theme={theme}
                 features={features}
                 categories={catList.map((c) => ({ slug: c.toLowerCase(), name: c }))}
-                navLinks={[
-                  { title: "Home", href: "#" },
-                  ...(d.categories ? [{ title: "Categories", href: "#" }] : []),
-                ]}
-                footer={[
-                  { title: "Explore", links: [{ title: "Latest", href: "#" }, { title: "Featured", href: "#" }] },
-                  { title: "Legal", links: [{ title: "Privacy", href: "#" }, { title: "Terms", href: "#" }] },
-                ]}
+                navLinks={navLinksFor(p.pages, { hasCategories: d.categories })}
+                footer={footerGroups(p.pages, { hasCategories: d.categories })}
                 showBadge={false}
                 allowCustomCss={p.canUseCustomCss ?? false}
               >
@@ -1273,15 +1256,30 @@ export function Customizer(p: Props) {
                     }
                     actions={
                       <div className="flex items-center gap-2">
-                        <span className="sf-chip cursor-pointer">👍 Like (1.2k)</span>
+                        {features.likes && <span className="sf-chip cursor-pointer">♡ 1,204</span>}
                         <span className="sf-chip cursor-pointer">🔗 Share</span>
                       </div>
                     }
                     report={<span className="text-xs text-neutral-400 mt-2 block">Flag abuse or DMCA</span>}
                     tags={[{ title: "Transcoding", href: "#" }, { title: "Streaming", href: "#" }, { title: "Production", href: "#" }]}
                     chapters={<div className="sf-meta mt-2 text-xs">Chapter 1: Overview • Chapter 2: Setup • Chapter 3: Deployment</div>}
+                    comments={features.comments ? (
+                      <section style={{ marginTop: "1.5rem" }}>
+                        <h2 style={{ fontSize: "1.1rem" }}>3 comments</h2>
+                        <p className="sf-meta" style={{ marginTop: ".5rem" }}><strong>Alex</strong> · Great walkthrough, thanks!</p>
+                      </section>
+                    ) : undefined}
                     transcript="Welcome to this comprehensive overview of our video platform infrastructure..."
                     features={features}
+                  />
+                )}
+
+                {/* Page View (About / Privacy ...: the first real page of this site) */}
+                {previewPage === "page" && (
+                  <Template.Page
+                    title={p.samplePage?.title ?? "About"}
+                    html={p.samplePage?.html ?? "<p>Your pages appear here.</p>"}
+                    breadcrumbs={[{ name: "Home", href: "#" }, { name: p.samplePage?.title ?? "About", href: "#" }]}
                   />
                 )}
 
@@ -1299,6 +1297,51 @@ export function Customizer(p: Props) {
               </Template.Shell>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Logo / favicon uploader: posts straight to the branding API (same validation as Settings and SEO) and shows the result. */
+function BrandImage({ tenantId, kind, label, current, canEdit, onDone, fallback, hint }: {
+  tenantId: string; kind: "logo" | "favicon"; label: string; current: string | null; canEdit: boolean;
+  onDone: (url: string) => void; fallback: React.ReactNode; hint: string;
+}) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  async function upload(file: File | undefined) {
+    if (!file) return;
+    setBusy(true);
+    setErr(null);
+    const form = new FormData();
+    form.set("kind", kind);
+    form.set("file", file);
+    const res = await fetch(`/api/sites/${tenantId}/branding`, { method: "POST", body: form }).catch(() => null);
+    const data = await res?.json().catch(() => ({}));
+    setBusy(false);
+    if (res?.ok && data?.url) { onDone(data.url); router.refresh(); }
+    else setErr(data?.error ?? data?.issues?.[0]?.message ?? "Upload failed");
+  }
+  return (
+    <div className="rounded-xl border border-neutral-200 bg-neutral-50/60 p-4">
+      <span className="mb-3 block text-xs font-semibold text-neutral-700">{label}</span>
+      <div className="flex items-center gap-3.5 rounded-lg border border-neutral-200/80 bg-white p-3">
+        {current ? (
+          <div className="flex h-12 w-20 shrink-0 items-center justify-center rounded-md border border-neutral-100 bg-neutral-50 p-1">
+            <img src={current} alt={`${label} preview`} className="max-h-full max-w-full object-contain" />
+          </div>
+        ) : fallback}
+        <div className="min-w-0 text-xs text-neutral-600 leading-normal">
+          <p>{hint}</p>
+          {canEdit && (
+            <label className="mt-1.5 inline-block cursor-pointer font-medium text-blue-600 hover:underline">
+              {busy ? "Uploading…" : current ? "Replace" : "Upload"}
+              <input type="file" hidden accept="image/png,image/jpeg,image/webp" disabled={busy} onChange={(e) => { void upload(e.target.files?.[0]); e.target.value = ""; }} />
+            </label>
+          )}
+          {err && <p role="alert" className="mt-1 text-red-700">{err}</p>}
         </div>
       </div>
     </div>

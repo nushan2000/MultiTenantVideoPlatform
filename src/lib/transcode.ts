@@ -30,7 +30,7 @@ export function ffprobePath(): string {
   return getEnv().FFPROBE_PATH ?? require("@ffprobe-installer/ffprobe").path;
 }
 
-function run(bin: string, args: string[], opts: { collectStdout?: boolean } = {}): Promise<string> {
+export function run(bin: string, args: string[], opts: { collectStdout?: boolean } = {}): Promise<string> {
   return new Promise((resolve, reject) => {
     const p = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"] });
     let out = "";
@@ -40,6 +40,25 @@ function run(bin: string, args: string[], opts: { collectStdout?: boolean } = {}
     p.on("error", (e) => reject(new ProcessError(`Could not start ${path.basename(bin)}: ${e.message}`, false)));
     p.on("close", (code) => (code === 0 ? resolve(out) : reject(new Error(`${path.basename(bin)} exited ${code}: ${err.trim().split("\n").slice(-3).join(" | ")}`))));
   });
+}
+
+/** Owner-supplied poster image -> the two JPEGs the storefront uses (640px cards, 1280px poster / og:image). Uses ffmpeg, so no image library is needed. */
+export async function imageToThumbs(image: Buffer, ext: string): Promise<{ small: Buffer; large: Buffer }> {
+  const work = await mkdtemp(path.join(os.tmpdir(), "vp-thumb-"));
+  try {
+    const src = path.join(work, `in.${ext}`);
+    await writeFile(src, image);
+    const make = async (name: string, width: number) => {
+      const out = path.join(work, name);
+      await run(ffmpegPath(), ["-y", "-i", src, "-frames:v", "1", "-vf", `scale='min(${width},iw)':-2`, "-q:v", "3", out]);
+      return readFile(out);
+    };
+    return { small: await make("small.jpg", 640), large: await make("large.jpg", 1280) };
+  } catch (e) {
+    throw new ProcessError("That image could not be processed. Try a different PNG, JPEG or WebP.", false);
+  } finally {
+    await rm(work, { recursive: true, force: true }).catch(() => {});
+  }
 }
 
 export type Probe = { durationSec: number; width: number; height: number; hasAudio: boolean };

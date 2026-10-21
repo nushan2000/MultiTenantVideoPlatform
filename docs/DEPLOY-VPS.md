@@ -108,7 +108,15 @@ This sits behind the in-code guard (resolution pinning, per-hop validation); if 
 - **Policy for new free sites:** consider `noindex` until reviewed if you expect spam. Adult tenants are better on a separate domain.
 - **Caching:** HTML is dynamic. Put a CDN in front of `/api/media/*` (immutable media) first; add HTML caching only with a short TTL.
 
-## 9. Operations
+## 9. Content scanning, captions, bandwidth
+- **Malware scan (ClamAV, free):** `apt install clamav-daemon`, then in `/etc/clamav/clamd.conf` set `TCPSocket 3310`, `TCPAddr 127.0.0.1` and `StreamMaxLength 5G` (default 25M makes big videos "too large" and they are held for review). Put `CLAMD_HOST=127.0.0.1` in `.env`.
+- **Moderation / hash matching (CSAM etc.):** these need a provider you contract (PhotoDNA, Google CSAI Match, a moderation API...). Point `SCAN_WEBHOOK_URL` at a small endpoint of yours that calls it; contract in `src/lib/safety/providers.ts`. Both scanners can run together (first non-clean verdict wins).
+- **Fail closed:** set `SCANNER_REQUIRED=true` in production so no video is ever published while no scanner is configured.
+- **Automatic captions (Premium, optional):** install whisper.cpp and a model on the VPS, then e.g. `WHISPER_COMMAND=/opt/whisper/whisper-cli -m /opt/whisper/ggml-base.bin -f {input} -ovtt -of {output}`. It runs in the transcode worker after a video is already live. CPU-heavy: keep `TRANSCODE_WORKER_CONCURRENCY=1` on a small box.
+- **Bandwidth:** each tenant's monthly bytes are counted in Redis and saved to Postgres every minute by the maintenance worker. Limits are in `PLAN_CONFIG` (`bandwidthLimitBytes`). Behind a CDN only cache misses reach the origin, so use CDN logs for exact billing and treat this as a safety net.
+- **Scheduled publishing** and the bandwidth flush run in `vp-maintenance`: keep that service running.
+
+## 10. Operations
 - Health: `GET http://127.0.0.1:3000/api/health` (Postgres, Redis, storage).
 - Logs are structured JSON (pino) on stdout → `journalctl -u vp-web -o cat`.
 - Dead-letter jobs: BullMQ queue `video-dead-letter` (inspect with any BullMQ dashboard).

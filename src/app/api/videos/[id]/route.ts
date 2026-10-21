@@ -3,6 +3,7 @@ import { pageSeoInputSchema, parsePageSeo } from "@/lib/seo";
 import { videoHandleTaken, videoPath, withHandleHistory } from "@/lib/handles";
 import { HttpError } from "@/lib/ingest/types";
 import { parseChapters, parseTags } from "@/lib/media-meta";
+import { invalidateMediaCache } from "@/lib/media-cache";
 import { notifyPaths } from "@/lib/seo-notify";
 import { route, serializeVideo } from "@/lib/api";
 import { apiVideo } from "@/lib/api-video";
@@ -15,6 +16,8 @@ const patch = z.object({
   title: z.string().trim().min(1).max(200).optional(),
   description: z.string().max(5000).nullable().optional(),
   visibility: z.enum(["PUBLIC", "UNLISTED", "PRIVATE"]).optional(),
+  /** ISO time: keep the video private until then, then publish it (maintenance worker). null cancels the schedule. */
+  publishAt: z.string().datetime({ offset: true }).nullable().optional(),
   categoryId: z.string().nullable().optional(),
   featured: z.boolean().optional(),
   tags: z.union([z.string(), z.array(z.string())]).optional(), // "a, b" or ["a","b"] -> slugified, max 15
@@ -32,8 +35,20 @@ export const PATCH = route(async (req, { params }: { params: Promise<{ id: strin
     const cat = await access.db.category.findFirst({ where: { id: data.categoryId } });
     if (!cat) data.categoryId = null;
   }
-  const { seo: seoInput, tags, chapters, transcript, ...rest } = data;
+  const { seo: seoInput, tags, chapters, transcript, publishAt: scheduleInput, ...rest } = data;
   const extra: Record<string, unknown> = {};
+  if (scheduleInput) {
+    const when = new Date(scheduleInput);
+    if (!(when.getTime() > Date.now() + 60_000)) throw new HttpError(400, "Pick a publish time at least a minute from now", "invalid");
+    if (when.getTime() > Date.now() + 366 * 86400_000) throw new HttpError(400, "Schedule at most a year ahead", "invalid");
+    if (video.status === "BLOCKED") throw new HttpError(409, "A blocked video cannot be scheduled", "blocked");
+    extra.publishAt = when;
+    rest.visibility = "PRIVATE"; // stays hidden until the scheduled time
+  } else if (scheduleInput === null) {
+    extra.publishAt = null;
+  } else if (rest.visibility && rest.visibility !== "PRIVATE" && video.publishAt) {
+    extra.publishAt = null; // choosing a visibility by hand overrides a pending schedule
+  }
   if (tags !== undefined) extra.tags = parseTags(tags);
   if (chapters !== undefined) extra.chapters = parseChapters(chapters, video.durationSec ?? undefined);
   if (transcript !== undefined) extra.transcript = transcript ? transcript.replace(/\u0000/g, "").trim() : null;
@@ -47,6 +62,7 @@ export const PATCH = route(async (req, { params }: { params: Promise<{ id: strin
     seo = { ...seoInput, previousHandles: withHandleHistory(prev, seoInput.handle, prev.handle) };
   }
   const updated = await access.db.video.update({ where: { id }, data: { ...rest, ...extra, ...(seo ? { seo } : {}) } });
+  if (rest.visibility) await invalidateMediaCache(access.tenant.id, id);
   void notifyPaths(access.tenant.id, [videoPath(updated)]); // IndexNow: changed URL
   return { ...serializeVideo(updated), path: videoPath(updated) };
 });
@@ -59,6 +75,7 @@ export const DELETE = route(async (_req, { params }: { params: Promise<{ id: str
   await dropUploadSession(id);
   await freeVideoBytes(access.tenant.id, id);
   await access.db.video.deleteMany({ where: { id } });
+  await invalidateMediaCache(access.tenant.id, id);
   await deletePrefix(keys.videoPrefix(access.tenant.id, id)).catch(() => {});
   await audit({ action: "video.deleted", tenantId: access.tenant.id, userId: access.userRow.id, target: id, ip: access.ip, metadata: { title: video.title } });
   return { ok: true };

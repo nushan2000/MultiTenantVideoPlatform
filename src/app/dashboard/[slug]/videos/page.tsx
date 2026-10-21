@@ -20,7 +20,7 @@ export default async function Videos({ params, searchParams }: { params: Promise
       id: s.id, title: s.title, description: s.description, status: s.status, visibility: s.visibility, featured: s.featured,
       categoryId: s.categoryId, ingestMethod: s.ingestMethod, sourceUrl: s.sourceUrl, failureReason: s.failureReason,
       importProgress: s.importProgress, seo: s.seo as Record<string, unknown>,
-      tags: s.tags as string[], chapters: formatChapters(parseChaptersJson(s.chapters)), transcript: (s.transcript as string | null) ?? "", captions: parseCaptionsJson(s.captions).map((c) => ({ lang: c.lang, label: c.label })), thumb: s.thumbnailPath ?? "", durationSec: s.durationSec, views: s.views, createdAt: s.createdAt.toISOString(),
+      tags: s.tags as string[], chapters: formatChapters(parseChaptersJson(s.chapters)), transcript: (s.transcript as string | null) ?? "", captions: parseCaptionsJson(s.captions).map((c) => ({ lang: c.lang, label: c.label })), thumb: s.thumbnailPath ?? "", publishAt: s.publishAt ? s.publishAt.toISOString() : null, likes: s.likes, durationSec: s.durationSec, views: s.views, createdAt: s.createdAt.toISOString(),
     };
   });
   return (

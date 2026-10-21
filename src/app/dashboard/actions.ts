@@ -11,6 +11,7 @@ import { platformDb } from "@/lib/db/client";
 import { addCustomDomain, verifyDomain } from "@/lib/domains";
 import { getEnv } from "@/lib/env";
 import { HttpError } from "@/lib/ingest/types";
+import { invalidateMediaCache } from "@/lib/media-cache";
 import { EntitlementError } from "@/lib/entitlements";
 import { rateLimit, RateLimitError } from "@/lib/rate-limit";
 import { storeBranding } from "@/lib/branding";
@@ -141,17 +142,6 @@ export async function saveGeneralAction(slug: string, formData: FormData) {
   flash(path, "ok", "Saved");
 }
 
-export async function saveThemeAction(slug: string, formData: FormData) {
-  const path = `/dashboard/${slug}/settings`;
-  const a = await requireTenant(slug, ["OWNER", "ADMIN"]);
-  await guarded(path, async () => {
-    const theme = themeFromForm(formData, a.ent, parseTheme(a.tenant.theme));
-    await a.db.tenant.update({ where: { id: a.tenant.id }, data: { theme: theme as object } });
-    await invalidateTenant(a.tenant.id);
-  });
-  flash(path, "ok", "Theme saved");
-}
-
 export type CustomizeInput = {
   name: string;
   template: string;
@@ -194,25 +184,12 @@ export async function saveFeaturesAction(slug: string, formData: FormData) {
     const adult = a.tenant.contentCategory === "ADULT";
     const features = featuresSchema.parse({
       comments: checkbox(formData, "comments"), categories: checkbox(formData, "categories"), search: checkbox(formData, "search"),
-      likes: checkbox(formData, "likes"), ageGate: adult || checkbox(formData, "ageGate"), downloads: false, noindex: checkbox(formData, "noindex"), crawlerAccess: checkbox(formData, "crawlerAccess"),
+      likes: checkbox(formData, "likes"), commentsAutoApprove: checkbox(formData, "commentsAutoApprove"), ageGate: adult || checkbox(formData, "ageGate"), downloads: false, noindex: checkbox(formData, "noindex"), crawlerAccess: checkbox(formData, "crawlerAccess"),
     });
     await a.db.tenant.update({ where: { id: a.tenant.id }, data: { features: features as object } });
     await invalidateTenant(a.tenant.id);
   });
   flash(path, "ok", "Features saved");
-}
-
-export async function uploadLogoAction(slug: string, formData: FormData) {
-  const path = `/dashboard/${slug}/settings`;
-  const a = await requireTenant(slug, ["OWNER", "ADMIN"]);
-  await guarded(path, async () => {
-    const file = formData.get("logo");
-    if (!(file instanceof File) || file.size === 0) throw new HttpError(400, "Choose an image first");
-    const url = await storeBranding(a.tenant.id, file, "logo");
-    await a.db.tenant.update({ where: { id: a.tenant.id }, data: { logoUrl: url } });
-    await invalidateTenant(a.tenant.id);
-  });
-  flash(path, "ok", "Logo updated");
 }
 
 export async function addCategoryAction(slug: string, formData: FormData) {
@@ -330,6 +307,7 @@ export async function resolveReportAction(slug: string, reportId: string, action
   if (action === "takedown") {
     await a.db.video.updateMany({ where: { id: report!.videoId }, data: { status: "BLOCKED", failureReason: "Removed after a report" } });
     await a.db.report.updateMany({ where: { id: reportId }, data: { status: "ACTIONED" } });
+    await invalidateMediaCache(a.tenant.id, report!.videoId);
   } else {
     await a.db.report.updateMany({ where: { id: reportId }, data: { status: "DISMISSED" } });
   }

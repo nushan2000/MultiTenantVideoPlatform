@@ -199,7 +199,7 @@ function Page({ title, html, breadcrumbs, updated }: PageProps) {
   );
 }
 
-function Watch({ video, related, player, actions, report, breadcrumbs, tags, chapters, transcript }: WatchProps) {
+function Watch({ video, related, player, actions, report, breadcrumbs, tags, chapters, transcript, comments }: WatchProps) {
   const desc = video.description?.trim() ?? "";
   return (
     <div className="sf-watch">
@@ -229,6 +229,7 @@ function Watch({ video, related, player, actions, report, breadcrumbs, tags, cha
             <p className="sf-desc">{transcript}</p>
           </details>
         ) : null}
+        {comments}
         {report}
       </div>
       <aside>
