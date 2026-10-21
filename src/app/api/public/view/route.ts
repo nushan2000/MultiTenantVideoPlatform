@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { bumpView } from "@/lib/analytics";
 import { route } from "@/lib/api";
 import { tenantTx } from "@/lib/db/client";
 import { clientIp } from "@/lib/rate-limit";
@@ -18,8 +19,10 @@ export const POST = route(async (req) => {
     return { counted: false };
   }
   // Raw SQL on purpose: the ORM's @updatedAt would bump "updatedAt" on every view and destroy the sitemap's <lastmod> signal.
-  const n = await tenantTx(tenant.id, (tx) =>
-    tx.$executeRaw`UPDATE "Video" SET views = views + 1 WHERE id = ${videoId} AND "tenantId" = ${tenant.id} AND status = 'READY' AND visibility IN ('PUBLIC','UNLISTED')`,
-  );
+  const n = await tenantTx(tenant.id, async (tx) => {
+    const updated = await tx.$executeRaw`UPDATE "Video" SET views = views + 1 WHERE id = ${videoId} AND "tenantId" = ${tenant.id} AND status = 'READY' AND visibility IN ('PUBLIC','UNLISTED')`;
+    if (updated > 0) await bumpView(tx, tenant.id, videoId);
+    return updated;
+  });
   return { counted: n > 0 };
 });

@@ -100,8 +100,40 @@ export default function HlsPlayer({ src, poster, videoId, vastTagUrl, tracks = [
     const t = Number(new URLSearchParams(window.location.search).get("t"));
     if (t > 0) video.addEventListener("loadedmetadata", () => { video.currentTime = t; }, { once: true });
 
+    // Watch time for the owner's analytics: count seconds of real playback (content only, not ads) and report them in batches.
+    let pending = 0;
+    let last = 0;
+    const onTime = () => {
+      if (ref.current?.controls === false) return; // ad
+      const now = video.currentTime;
+      const delta = now - last;
+      if (delta > 0 && delta < 2) pending += delta; // normal playback; ignores seeks
+      last = now;
+    };
+    const flush = (beacon = false) => {
+      const seconds = Math.min(120, Math.floor(pending));
+      if (seconds < 1) return;
+      pending -= seconds;
+      const body = JSON.stringify({ videoId, seconds });
+      if (beacon && navigator.sendBeacon) navigator.sendBeacon("/api/public/watch", new Blob([body], { type: "application/json" }));
+      else fetch("/api/public/watch", { method: "POST", headers: { "content-type": "application/json" }, body, keepalive: true }).catch(() => {});
+    };
+    const onSeeking = () => { last = video.currentTime; };
+    const onPageHide = () => flush(true);
+    const tick = setInterval(() => flush(), 30_000);
+    video.addEventListener("timeupdate", onTime);
+    video.addEventListener("seeking", onSeeking);
+    video.addEventListener("pause", onPageHide);
+    window.addEventListener("pagehide", onPageHide);
+
     void playPreroll();
     return () => {
+      flush(true);
+      clearInterval(tick);
+      video.removeEventListener("timeupdate", onTime);
+      video.removeEventListener("seeking", onSeeking);
+      video.removeEventListener("pause", onPageHide);
+      window.removeEventListener("pagehide", onPageHide);
       cancelled = true;
       window.removeEventListener("sf-seek", onSeek);
       hls?.destroy();

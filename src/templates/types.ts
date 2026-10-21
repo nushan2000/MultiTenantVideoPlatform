@@ -58,6 +58,7 @@ export type WatchProps = {
   chapters: ReactNode;
   transcript: string | null;
   banner?: string | null;
+  comments?: ReactNode; // moderated comment section (only when the owner enabled comments)
   features: Features;
 };
 

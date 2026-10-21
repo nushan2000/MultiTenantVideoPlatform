@@ -5,8 +5,9 @@ import type { ReactNode } from "react";
 import AgeGate from "@/components/AgeGate";
 import { tenantDb } from "@/lib/db/client";
 import { entitlements } from "@/lib/entitlements";
-import { footerGroups } from "@/lib/pages/store";
+import { footerGroups, navLinksFor } from "@/lib/pages/store";
 import { SYSTEM_PAGES } from "@/lib/pages/system";
+import { publicPlaylists } from "@/lib/playlists";
 import { parseSiteSeo } from "@/lib/seo";
 import { absoluteUrl, canonicalOrigin, INDEXABLE_ROBOTS } from "@/lib/seo-server";
 import { adsForTenant } from "@/lib/storefront-data";
@@ -79,20 +80,16 @@ export default async function SiteLayout({ children, params }: { children: React
     return <T.Shell {...base} bare><AgeGate siteName={tenant.name} /></T.Shell>;
   }
 
-  const [categories, ads, pages] = await Promise.all([
+  const [categories, ads, pages, playlists] = await Promise.all([
     features.categories ? tenantDb(tenant.id).category.findMany({ orderBy: { name: "asc" }, select: { slug: true, name: true } }) : Promise.resolve([]),
     adsForTenant(tenant),
     pagesForTenant(tenant),
+    publicPlaylists(tenant.id, 4),
   ]);
   const hasCategories = features.categories && categories.length > 0;
-  const navLinks = [
-    { title: "Home", href: "/" },
-    { title: "Trending", href: "/trending" },
-    ...(hasCategories ? [{ title: "Categories", href: "/categories" }] : []),
-    ...(pages.find((p) => p.key === "about" && p.published) ? [{ title: "About", href: "/about" }] : []),
-  ];
+  const navLinks = navLinksFor(pages, { hasCategories });
   return (
-    <T.Shell {...base} categories={categories} navLinks={navLinks} footer={footerGroups(pages, { hasCategories })} banner={ads.bannerHtml}>
+    <T.Shell {...base} categories={categories} navLinks={navLinks} footer={footerGroups(pages, { hasCategories, playlists })} banner={ads.bannerHtml}>
       {children}
     </T.Shell>
   );

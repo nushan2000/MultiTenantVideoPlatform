@@ -168,6 +168,10 @@ export type HealthInput = {
   noindex: boolean;
   videos: { total: number; withDescription: number; withThumbnail: number; customSeo: number };
   categories: { total: number; withSeo: number };
+  /** Storefront pages (About, Privacy, custom...). Optional so older callers keep working. */
+  pages?: { total: number; withDescription: number; noindexed: number; businessDetailsFilled: boolean };
+  /** Message from checkThemeContrast() or null when the theme is readable. */
+  themeContrastIssue?: string | null;
 };
 
 /** Checklist shown on the SEO tab: each item is a concrete, fixable thing. */
@@ -200,6 +204,12 @@ export function seoHealth(i: HealthInput): { score: number; items: (Hint & { id:
     const pct = i.categories.withSeo / i.categories.total;
     add("category-seo", pct >= 0.8 ? true : "warn", "Categories have their own titles/descriptions.", `${i.categories.total - i.categories.withSeo} of ${i.categories.total} categories use auto-generated metadata. Custom text ranks better.`, 0.5);
   }
+  if (i.pages && i.pages.total > 0) {
+    add("business-details", i.pages.businessDetailsFilled, "Business details are filled in, so legal pages are accurate.", "Fill in your business details (Pages tab): Privacy, Terms, DMCA and Contact pages are generated from them.", 1);
+    const noindexed = i.pages.noindexed;
+    add("pages-indexable", noindexed === 0 ? true : "warn", "All pages can be indexed.", `${noindexed} page${noindexed === 1 ? " is" : "s are"} set to noindex and will not appear in search.`, 0.5);
+  }
+  if (i.themeContrastIssue !== undefined) add("theme-contrast", !i.themeContrastIssue, "Your theme colours are readable (WCAG contrast).", `Theme contrast: ${i.themeContrastIssue}`, 1);
   const max = items.reduce((s, it) => s + (weights[it.id] ?? 1), 0);
   const got = items.reduce((s, it) => s + (weights[it.id] ?? 1) * (it.level === "good" ? 1 : it.level === "warn" ? 0.5 : 0), 0);
   return { score: max ? Math.round((got / max) * 100) : 0, items };

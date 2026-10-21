@@ -27,6 +27,8 @@ export const featuresSchema = z.object({
   likes: z.boolean().default(false),
   ageGate: z.boolean().default(false),
   downloads: z.boolean().default(false),
+  /** Comments from visitors appear immediately instead of waiting for approval. */
+  commentsAutoApprove: z.boolean().default(false),
   noindex: z.boolean().default(false),
   /** Let verified search-engine crawlers read content behind the age gate (needed for gated sites to be indexed). */
   crawlerAccess: z.boolean().default(true),
@@ -70,11 +72,15 @@ export function validateCustomCss(css: string): { ok: true } | { ok: false; reas
 }
 
 /** Free plans choose a preset; custom colours/fonts are a premium entitlement (enforced in the dashboard actions). */
-export const THEME_PRESETS: Record<string, { label: string; theme: Partial<Theme> }> = {
-  classic: { label: "Classic blue", theme: { primaryColor: "#2563eb", bgColor: "#ffffff", textColor: "#111827" } },
-  midnight: { label: "Midnight", theme: { primaryColor: "#38bdf8", bgColor: "#0f172a", textColor: "#e5e7eb" } },
-  forest: { label: "Forest", theme: { primaryColor: "#15803d", bgColor: "#f7fdf9", textColor: "#14231a" } },
-  sunset: { label: "Sunset", theme: { primaryColor: "#ea580c", bgColor: "#fff7ed", textColor: "#2b1608" } },
+export const THEME_PRESETS: Record<string, { label: string; tag: string; theme: Partial<Theme> }> = {
+  classic: { label: "Classic Slate", tag: "Light", theme: { primaryColor: "#2563eb", bgColor: "#ffffff", textColor: "#111827" } },
+  midnight: { label: "Midnight Cyber", tag: "Dark", theme: { primaryColor: "#38bdf8", bgColor: "#0f172a", textColor: "#e5e7eb" } },
+  forest: { label: "Emerald Clean", tag: "Natural", theme: { primaryColor: "#15803d", bgColor: "#f7fdf9", textColor: "#14231a" } },
+  sunset: { label: "Sunset Amber", tag: "Warm", theme: { primaryColor: "#ea580c", bgColor: "#fff7ed", textColor: "#2b1608" } },
+  royal: { label: "Royal Violet", tag: "Vibrant", theme: { primaryColor: "#7c3aed", bgColor: "#faf5ff", textColor: "#1e1035" } },
+  obsidian: { label: "Obsidian Neon", tag: "High-Contrast", theme: { primaryColor: "#06b6d4", bgColor: "#090d16", textColor: "#f1f5f9" } },
+  crimson: { label: "Crimson Noir", tag: "Cinematic", theme: { primaryColor: "#e11d48", bgColor: "#0c0a09", textColor: "#fafaf9" } },
+  nordic: { label: "Nordic Frost", tag: "Minimal", theme: { primaryColor: "#0284c7", bgColor: "#f8fafc", textColor: "#0f172a" } },
 };
 export const presetTheme = (key: string): Theme => parseTheme({ ...(THEME_PRESETS[key]?.theme ?? THEME_PRESETS.classic.theme) });
 

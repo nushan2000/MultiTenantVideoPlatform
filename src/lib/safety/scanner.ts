@@ -1,4 +1,6 @@
+import { getEnv } from "../env";
 import { logger } from "../logger";
+import { missingScanner, scannersFromEnv } from "./providers";
 
 export type ScanInput = {
   tenantId: string;
@@ -35,8 +37,19 @@ export const stubScanner: ContentScanner = {
   },
 };
 
-let active: ContentScanner = stubScanner;
-export const setContentScanner = (s: ContentScanner) => {
+let active: ContentScanner | null = null;
+export const setContentScanner = (s: ContentScanner | null) => {
   active = s;
 };
-export const getContentScanner = () => active;
+
+/**
+ * The scanner in use: whatever is configured in the environment (ClamAV and/or a moderation webhook, see providers.ts),
+ * else the stub. With SCANNER_REQUIRED=true and nothing configured, nothing is ever approved.
+ */
+export function getContentScanner(): ContentScanner {
+  if (!active) {
+    active = scannersFromEnv() ?? (getEnv().SCANNER_REQUIRED === "true" ? missingScanner : stubScanner);
+    logger.info({ scanner: active.name }, "content scanner selected");
+  }
+  return active;
+}

@@ -11,14 +11,19 @@ import { useRouter } from "next/navigation";
 
 type Seo = { handle?: string; title?: string; description?: string; keywords?: string[]; ogImage?: string; canonicalUrl?: string; noindex?: boolean };
 export type PageRow = {
-  kind: "category" | "video";
+  kind: "category" | "video" | "page";
   id: string;
   name: string;
   /** current URL handle (category slug / video handle or id) */
   ref: string;
   description: string;
   seo: Seo;
+  /** pages only: false for untouched generated defaults (edited from the Pages tab) */
+  editable?: boolean;
+  published?: boolean;
 };
+
+const PREFIX = { video: "/v/", category: "/c/", page: "/" } as const;
 
 type Filter = "all" | "attention";
 const tabCls = (on: boolean) => `rounded-full px-3 py-1 text-sm ${on ? "bg-blue-600 text-white" : "bg-neutral-200 hover:bg-neutral-300"}`;
@@ -27,14 +32,14 @@ const tabCls = (on: boolean) => `rounded-full px-3 py-1 text-sm ${on ? "bg-blue-
 export default function PagesTable({ rows: initial, origin, siteName, template, slug, tenantId }: { rows: PageRow[]; origin: string; siteName: string; template: string; slug: string; tenantId: string }) {
   const [rows, setRows] = useState(initial);
   const [filter, setFilter] = useState<Filter>("all");
-  const [kind, setKind] = useState<"all" | "category" | "video">("all");
+  const [kind, setKind] = useState<"all" | "category" | "video" | "page">("all");
   const [openId, setOpenId] = useState<string | null>(null);
   useEffect(() => setRows(initial), [initial]);
 
   // deep link: /dashboard/<slug>/seo#video-<id> or #category-<id>
   useEffect(() => {
     const h = window.location.hash.replace("#", "");
-    const m = /^(video|category)-(.+)$/.exec(h);
+    const m = /^(video|category|page)-(.+)$/.exec(h);
     if (m) {
       setOpenId(m[2]);
       setTimeout(() => document.getElementById(h)?.scrollIntoView({ block: "center" }), 100);
@@ -55,7 +60,7 @@ export default function PagesTable({ rows: initial, origin, siteName, template, 
     : !r.seo.title && r.kind === "category" ? "Using automatic title" : null;
 
   function exportCsv() {
-    const csv = toCsv([["type", "id", "url", "seo_title", "seo_description"], ...rows.map((r) => [r.kind, r.id, `${origin}${r.kind === "video" ? "/v/" : "/c/"}${r.ref}`, r.seo.title ?? "", r.seo.description ?? ""])]);
+    const csv = toCsv([["type", "id", "url", "seo_title", "seo_description"], ...rows.filter((r) => r.kind !== "page" || r.editable).map((r) => [r.kind, r.id, `${origin}${PREFIX[r.kind]}${r.ref}`, r.seo.title ?? "", r.seo.description ?? ""])]);
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
     a.download = `${slug}-seo.csv`;
@@ -69,7 +74,7 @@ export default function PagesTable({ rows: initial, origin, siteName, template, 
     if (col("type") < 0 || col("id") < 0) return setBulkMsg({ ok: false, text: "The CSV needs type and id columns (export one to see the format)." });
     const changed = body
       .map((c) => ({ type: c[col("type")], id: c[col("id")], title: c[col("seo_title")] ?? "", description: c[col("seo_description")] ?? "" }))
-      .filter((r) => (r.type === "video" || r.type === "category") && r.id)
+      .filter((r) => (r.type === "video" || r.type === "category" || r.type === "page") && r.id)
       .filter((r) => { const cur = rows.find((x) => x.id === r.id); return cur && ((cur.seo.title ?? "") !== r.title || (cur.seo.description ?? "") !== r.description); });
     if (!changed.length) return setBulkMsg({ ok: true, text: "No changes found in that file." });
     const res = await fetch(`/api/sites/${tenantId}/seo/bulk`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ rows: changed.slice(0, 500) }) }).catch(() => null);
@@ -91,6 +96,7 @@ export default function PagesTable({ rows: initial, origin, siteName, template, 
         <span className="mx-1 text-neutral-300">|</span>
         <button className={tabCls(kind === "all")} onClick={() => setKind("all")}>Everything</button>
         <button className={tabCls(kind === "category")} onClick={() => setKind("category")}>Categories</button>
+        <button className={tabCls(kind === "page")} onClick={() => setKind("page")}>Pages</button>
         <button className={tabCls(kind === "video")} onClick={() => setKind("video")}>Videos</button>
       </div>
       <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
@@ -102,7 +108,7 @@ export default function PagesTable({ rows: initial, origin, siteName, template, 
       {shown.length === 0 && <p className="text-sm text-neutral-500">Nothing here. {filter === "attention" ? "Every page has what it needs." : ""}</p>}
       <ul className="divide-y">
         {shown.map((r) => {
-          const prefix = r.kind === "video" ? "/v/" : "/c/";
+          const prefix = PREFIX[r.kind];
           const anchor = `${r.kind}-${r.id}`;
           const issue = needs(r);
           const open = openId === r.id;
@@ -116,9 +122,13 @@ export default function PagesTable({ rows: initial, origin, siteName, template, 
                 </div>
                 <div className="flex items-center gap-2">
                   {issue && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-900">{issue}</span>}
-                  <a className={btnGhostCls} href={`${origin}${prefix}${r.ref}`} target="_blank" rel="noreferrer">View ↗</a>
+                  {r.kind === "page" && r.published === false
+                    ? <span className="rounded-full bg-neutral-200 px-2 py-0.5 text-xs">hidden</span>
+                    : <a className={btnGhostCls} href={`${origin}${prefix}${r.ref}`} target="_blank" rel="noreferrer">View ↗</a>}
                   {r.kind === "video" && <Link className={btnGhostCls} href={`/dashboard/${slug}/videos?edit=${r.id}`}>Edit video</Link>}
-                  <button className={btnGhostCls} onClick={() => setOpenId(open ? null : r.id)}>{open ? "Close" : "Edit SEO"}</button>
+                  {r.kind === "page" && !r.editable
+                    ? <Link className={btnGhostCls} href={`/dashboard/${slug}/pages`} title="This page is generated. Customise it in the Pages tab to give it its own search listing.">Customise in Pages</Link>
+                    : <button className={btnGhostCls} onClick={() => setOpenId(open ? null : r.id)}>{open ? "Close" : "Edit SEO"}</button>}
                 </div>
               </div>
               {open && (
@@ -126,19 +136,20 @@ export default function PagesTable({ rows: initial, origin, siteName, template, 
                   <SeoPanel
                     key={r.id}
                     initial={toListingValue(r.seo, r.seo.handle ?? (r.kind === "category" ? r.ref : ""))}
-                    endpoint={r.kind === "video" ? `/api/videos/${r.id}` : `/api/categories/${r.id}`}
+                    endpoint={r.kind === "video" ? `/api/videos/${r.id}` : r.kind === "page" ? `/api/pages/${r.id}` : `/api/categories/${r.id}`}
                     toBody={(v) => {
                       const body = { ...listingBody(v), keywords: v.keywords.split(",").map((k) => k.trim()).filter(Boolean) };
                       if (r.kind === "video") return { seo: body };
                       const { handle, ...seo } = body;
+                      if (r.kind === "page") return { seo };
                       return { handle: handle || r.ref, seo };
                     }}
                     onSaved={(_res, v) => setRows((cur) => cur.map((x) => (x.id === r.id ? {
                       ...x, ref: v.handle || (x.kind === "video" ? x.id : x.ref),
                       seo: { ...x.seo, title: v.title, description: v.description, handle: v.handle || undefined, noindex: v.noindex, keywords: v.keywords.split(",").map((k) => k.trim()).filter(Boolean) },
                     } : x)))}
-                    origin={origin} pathPrefix={prefix} handleEditable defaultHandle={r.kind === "video" ? r.id : r.ref}
-                    fallbackTitle={r.name} fallbackDescription={truncate(r.description || (r.kind === "video" ? `Watch ${r.name} on ${siteName}.` : `Browse ${r.name} videos on ${siteName}.`), 155)}
+                    origin={origin} pathPrefix={prefix} handleEditable={r.kind !== "page"} defaultHandle={r.kind === "video" ? r.id : r.ref}
+                    fallbackTitle={r.name} fallbackDescription={truncate(r.description || (r.kind === "video" ? `Watch ${r.name} on ${siteName}.` : r.kind === "page" ? `${r.name} on ${siteName}.` : `Browse ${r.name} videos on ${siteName}.`), 155)}
                     siteName={siteName} template={template} applyTemplate defaultOpen
                   />
                 </div>

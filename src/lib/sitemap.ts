@@ -2,6 +2,7 @@ import { tenantDb, tenantTx } from "./db/client";
 import { videoPath } from "./handles";
 import { systemPagesFor } from "./pages/system";
 import { loadPages } from "./pages/store";
+import { publicPlaylists } from "./playlists";
 import { parsePageSeo, stripText, truncate } from "./seo";
 import { absoluteUrl } from "./seo-server";
 import { mediaUrl } from "./storefront-data";
@@ -49,6 +50,9 @@ export async function buildMain(t: ResolvedTenant, origin: string): Promise<stri
     tx.$queryRaw<{ tag: string }[]>`SELECT tag FROM "Video", unnest(tags) AS tag WHERE "tenantId" = ${t.id} AND status = 'READY' AND visibility = 'PUBLIC' GROUP BY tag HAVING count(*) >= 2 ORDER BY count(*) DESC LIMIT 500`,
   );
   for (const { tag } of tags) entries.push(`<url><loc>${esc(`${origin}/tag/${tag}`)}</loc><changefreq>weekly</changefreq><priority>0.4</priority></url>`);
+
+  // playlists with 2+ public videos (a one-video playlist is noindex)
+  for (const pl of await publicPlaylists(t.id, 200, 2)) entries.push(`<url><loc>${esc(`${origin}/playlist/${pl.slug}`)}</loc><lastmod>${pl.updatedAt.toISOString()}</lastmod><changefreq>weekly</changefreq><priority>0.5</priority></url>`);
 
   const pages = await loadPages(t, origin);
   for (const p of pages) {

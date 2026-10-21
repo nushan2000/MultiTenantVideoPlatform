@@ -10,7 +10,7 @@ type Row = {
   id: string; handle?: string; title: string; description: string | null; status: string; visibility: string; featured: boolean;
   categoryId: string | null; ingestMethod: string; sourceUrl: string | null; failureReason: string | null;
   importProgress: number; durationSec: number | null; views: number; createdAt: string;
-  tags: string[]; chapters: string; transcript: string; captions: Cap[];
+  tags: string[]; chapters: string; transcript: string; captions: Cap[]; thumb?: string; publishAt?: string | null; likes?: number;
   seo: { handle?: string; title?: string; description?: string; keywords?: string[]; ogImage?: string; canonicalUrl?: string; noindex?: boolean };
 };
 type Site = { name: string; origin: string };
@@ -90,7 +90,7 @@ export default function VideoList({ initial, categories, site }: { initial: Row[
                 <div className="min-w-0">
                   <div className="truncate font-medium">{r.title}</div>
                   <div className="text-xs text-neutral-500">
-                    {r.ingestMethod === "URL" ? "imported" : "uploaded"} · {r.visibility.toLowerCase()} · {r.views} views
+                    {r.ingestMethod === "URL" ? "imported" : "uploaded"} · {r.publishAt ? `scheduled for ${new Date(r.publishAt).toLocaleString()}` : r.visibility.toLowerCase()} · {r.views} views{r.likes ? ` · ${r.likes} likes` : ""}
                     {r.featured && " · featured"}
                   </div>
                 </div>
@@ -119,6 +119,7 @@ function EditForm({ row, categories, site, seoOpen, onSave }: { row: Row; catego
   const [visibility, setVisibility] = useState(row.visibility);
   const [categoryId, setCategoryId] = useState(row.categoryId ?? "");
   const [featured, setFeatured] = useState(row.featured);
+  const [publishAt, setPublishAt] = useState(row.publishAt ? toLocalInput(row.publishAt) : "");
   const [listing, setListing] = useState(toListingValue(row.seo));
   const [tags, setTags] = useState(row.tags.map((t) => t.replace(/-/g, " ")).join(", "));
   const [chapters, setChapters] = useState(row.chapters);
@@ -127,6 +128,7 @@ function EditForm({ row, categories, site, seoOpen, onSave }: { row: Row; catego
     <div className="mt-3 grid gap-2 rounded-md bg-neutral-50 p-3 text-sm">
       <input className={inputCls} value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} aria-label="Title" />
       <textarea className={inputCls} value={description} onChange={(e) => setDescription(e.target.value)} rows={3} maxLength={5000} placeholder="Description" />
+      <Thumbnail row={row} />
       <div className="flex flex-wrap gap-2">
         <select className={inputCls + " !w-auto"} value={visibility} onChange={(e) => setVisibility(e.target.value)} disabled={row.status === "BLOCKED"}>
           <option value="PUBLIC">Public</option><option value="UNLISTED">Unlisted</option><option value="PRIVATE">Private</option>
@@ -136,6 +138,9 @@ function EditForm({ row, categories, site, seoOpen, onSave }: { row: Row; catego
         </select>
         <label className="flex items-center gap-1"><input type="checkbox" checked={featured} onChange={(e) => setFeatured(e.target.checked)} /> Featured</label>
       </div>
+      <label className="block"><span className="mb-1 block font-medium">Schedule publishing</span>
+        <input type="datetime-local" className={inputCls + " !w-auto"} value={publishAt} onChange={(e) => setPublishAt(e.target.value)} />
+        <span className="mt-1 block text-xs text-neutral-500">The video stays private and goes public at this time (your local time). Clear the field to cancel the schedule.</span></label>
       <label className="block"><span className="mb-1 block font-medium">Tags (comma separated)</span>
         <input className={inputCls} value={tags} onChange={(e) => setTags(e.target.value)} placeholder="home workout, beginner, yoga" />
         <span className="mt-1 block text-xs text-neutral-500">Tags create /tag/… pages and link related videos together. Up to 15.</span></label>
@@ -152,6 +157,7 @@ function EditForm({ row, categories, site, seoOpen, onSave }: { row: Row; catego
       />
       <div><button className={btnGhostCls} onClick={() => onSave({
         title, description: description || null, visibility, categoryId: categoryId || null, featured,
+        ...(publishAt !== (row.publishAt ? toLocalInput(row.publishAt) : "") ? { publishAt: (publishAt ? new Date(publishAt).toISOString() : null) as unknown as string } : {}),
         tags: tags as unknown as string[], chapters: chapters as unknown as string, transcript: (transcript || null) as unknown as string,
         seo: { ...listingBody(listing), keywords: listing.keywords.split(",").map((k) => k.trim()).filter(Boolean) } as unknown as Row["seo"],
       })}>Save</button></div>
@@ -193,6 +199,42 @@ function Captions({ row }: { row: Row }) {
         <input type="file" accept=".vtt,.srt,text/vtt" disabled={busy} onChange={(e) => upload(e.target.files?.[0])} />
       </div>
       {msg && <p role={msg.ok ? "status" : "alert"} className={`mt-1 text-xs ${msg.ok ? "text-green-700" : "text-red-700"}`}>{msg.text}</p>}
+    </div>
+  );
+}
+
+/** ISO instant -> value for <input type="datetime-local"> in the viewer's timezone. */
+function toLocalInput(iso: string): string {
+  const d = new Date(iso);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/** Owner-supplied thumbnail (poster image). Uploaded straight away; ffmpeg re-encodes it to the two sizes the storefront uses. */
+function Thumbnail({ row }: { row: Row }) {
+  const [src, setSrc] = useState(row.thumb ? `/api/media/${row.thumb}` : "");
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  async function upload(file: File | undefined) {
+    if (!file) return;
+    setBusy(true);
+    const fd = new FormData();
+    fd.set("file", file);
+    const res = await fetch(`/api/videos/${row.id}/thumbnail`, { method: "POST", body: fd }).catch(() => null);
+    const data = await res?.json().catch(() => ({}));
+    setBusy(false);
+    if (res?.ok) { setSrc(`/api/media/${data.thumb}?v=${Date.now()}`); setMsg({ ok: true, text: "Thumbnail updated. Visitors may see the old one for up to an hour (browser cache)." }); }
+    else setMsg({ ok: false, text: data?.error ?? "Upload failed" });
+  }
+  return (
+    <div className="flex items-center gap-3 rounded-md border bg-white p-3">
+      {src ? <img src={src} alt="Current thumbnail" className="h-14 w-24 rounded object-cover" /> : <div className="grid h-14 w-24 place-items-center rounded bg-neutral-200 text-xs text-neutral-500">none yet</div>}
+      <div className="text-xs">
+        <div className="mb-1 text-sm font-medium">Thumbnail</div>
+        <input type="file" accept="image/png,image/jpeg,image/webp" disabled={busy || row.status !== "READY"} onChange={(e) => { void upload(e.target.files?.[0]); e.target.value = ""; }} />
+        <p className="mt-1 text-neutral-500">{row.status === "READY" ? "16:9, at least 1280×720 looks best. PNG, JPEG or WebP, up to 5 MB." : "Available once the video has finished processing."}</p>
+        {msg && <p role={msg.ok ? "status" : "alert"} className={msg.ok ? "text-green-700" : "text-red-700"}>{msg.text}</p>}
+      </div>
     </div>
   );
 }

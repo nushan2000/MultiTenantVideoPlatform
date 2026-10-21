@@ -6,6 +6,8 @@ import { platformDb } from "@/lib/db/client";
 import { HttpError } from "@/lib/ingest/types";
 import { pageInputSchema, pageSlugCheck } from "@/lib/pages/input";
 import { systemPageByKey } from "@/lib/pages/system";
+import { notifyPaths } from "@/lib/seo-notify";
+import { invalidateTenant } from "@/lib/tenancy/resolve";
 
 async function load(id: string) {
   const row = await platformDb.page.findUnique({ where: { id }, select: { tenantId: true } });
@@ -38,6 +40,9 @@ export const PATCH = route(async (req, { params }: { params: Promise<{ id: strin
   }
   const updated = await a.db.page.update({ where: { id }, data });
   await audit({ action: "page.updated", tenantId: a.tenant.id, userId: a.userRow.id, target: id });
+  await invalidateTenant(a.tenant.id);
+  // the old URL changed too when a custom page was renamed
+  await notifyPaths(a.tenant.id, [...new Set([page.slug, updated.slug, "/sitemap"])].map((s) => (s.startsWith("/") ? s : `/${s}`)));
   return { id: updated.id, slug: updated.slug };
 });
 
@@ -47,5 +52,7 @@ export const DELETE = route(async (_req, { params }: { params: Promise<{ id: str
   const { a, page } = await load(id);
   await a.db.page.deleteMany({ where: { id } });
   await audit({ action: page.systemKey ? "page.reset" : "page.deleted", tenantId: a.tenant.id, userId: a.userRow.id, target: id, metadata: { slug: page.slug } });
+  await invalidateTenant(a.tenant.id);
+  await notifyPaths(a.tenant.id, [`/${page.slug}`, "/sitemap"]);
   return { ok: true, reset: !!page.systemKey };
 });

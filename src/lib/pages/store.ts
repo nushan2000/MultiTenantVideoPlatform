@@ -48,18 +48,4 @@ export async function loadPages(t: TenantLike, origin: string): Promise<StorePag
   return out;
 }
 
-const FOOTER_LABEL: Record<string, string> = { dmca: "Copyright / DMCA", "2257": "2257 Statement", community: "Community Guidelines" };
-
-export type FooterGroup = { title: string; links: { title: string; href: string }[] };
-
-export function footerGroups(pages: StorePage[], opts: { hasCategories: boolean }): FooterGroup[] {
-  const live = pages.filter((p) => p.published && p.inFooter);
-  const link = (p: StorePage) => ({ title: (!p.customized && p.key && FOOTER_LABEL[p.key]) || p.title, href: `/${p.slug}` });
-  const groups: FooterGroup[] = [
-    { title: "Explore", links: [{ title: "Home", href: "/" }, { title: "Trending", href: "/trending" }, ...(opts.hasCategories ? [{ title: "Categories", href: "/categories" }] : []), { title: "Site map", href: "/sitemap" }] },
-    { title: "Help", links: live.filter((p) => p.group === "help").map(link) },
-    { title: "Legal", links: live.filter((p) => p.group === "legal").map(link) },
-    { title: "More", links: live.filter((p) => p.group === "more").map(link) },
-  ];
-  return groups.filter((g) => g.links.length > 0);
-}
+export { footerGroups, navLinksFor, type FooterGroup } from "./footer";

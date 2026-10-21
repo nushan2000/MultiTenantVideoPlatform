@@ -1,13 +1,16 @@
 import { requireTenant } from "@/lib/access";
 import { Card, Flash } from "@/components/ui";
 import { videoRef } from "@/lib/handles";
+import { loadPages } from "@/lib/pages/store";
+import { parseProfile } from "@/lib/pages/profile";
 import { parsePageSeo, parseSiteSeo, seoHealth } from "@/lib/seo";
 import { tenantPublicOrigin } from "@/lib/seo-server";
-import { parseFeatures } from "@/lib/theme";
+import { checkThemeContrast, parseFeatures, parseTheme } from "@/lib/theme";
 import HomeSeo from "./HomeSeo";
 import PagesTable, { type PageRow } from "./PagesTable";
 import SiteSettings from "./SiteSettings";
 
+const VIDEO_CAP = 1000;
 const ICON = { good: "✓", warn: "!", bad: "✗" } as const;
 const COLOR = { good: "text-green-700", warn: "text-amber-700", bad: "text-red-700" } as const;
 
@@ -18,10 +21,13 @@ export default async function SeoHub({ params, searchParams }: { params: Promise
   const seo = parseSiteSeo(a.tenant.seo);
   const features = parseFeatures(a.tenant.features);
   const { origin, custom } = await tenantPublicOrigin({ id: a.tenant.id, slug, planKey: a.planKey });
-  const [videos, categories] = await Promise.all([
-    a.db.video.findMany({ where: { status: "READY" }, orderBy: { createdAt: "desc" }, take: 300, select: { id: true, title: true, description: true, thumbnailPath: true, seo: true } }),
+  const [videos, categories, pages, readyCount] = await Promise.all([
+    a.db.video.findMany({ where: { status: "READY" }, orderBy: { createdAt: "desc" }, take: VIDEO_CAP, select: { id: true, title: true, description: true, thumbnailPath: true, seo: true } }),
     a.db.category.findMany({ orderBy: { name: "asc" } }),
+    loadPages(a.tenant, origin),
+    a.db.video.count({ where: { status: "READY" } }),
   ]);
+  const profile = parseProfile(a.tenant.profile);
 
   const health = seoHealth({
     seo, siteName: a.tenant.name, hasLogo: !!a.tenant.logoUrl, hasFavicon: !!a.tenant.faviconUrl, hasActiveCustomDomain: custom, noindex: features.noindex,
@@ -30,18 +36,31 @@ export default async function SeoHub({ params, searchParams }: { params: Promise
       withThumbnail: videos.filter((v) => !!v.thumbnailPath).length, customSeo: videos.filter((v) => { const s = parsePageSeo(v.seo); return !!(s.title || s.description); }).length,
     },
     categories: { total: categories.length, withSeo: categories.filter((c) => { const s = parsePageSeo(c.seo); return !!(s.title && s.description); }).length },
+    pages: {
+      total: pages.filter((p) => p.published).length, withDescription: pages.filter((p) => p.description.trim().length > 0).length,
+      noindexed: pages.filter((p) => p.published && p.seo.noindex).length, businessDetailsFilled: !!(profile.legalName && profile.contactEmail),
+    },
+    themeContrastIssue: checkThemeContrast(parseTheme(a.tenant.theme)),
   });
   const bar = health.score >= 80 ? "bg-green-600" : health.score >= 50 ? "bg-amber-500" : "bg-red-500";
   const template = seo.titleTemplate || `%s · ${a.tenant.name}`;
 
   const rows: PageRow[] = [
     ...categories.map((c): PageRow => ({ kind: "category", id: c.id, name: c.name, ref: c.slug, description: "", seo: parsePageSeo(c.seo) })),
+    ...pages.map((p): PageRow => ({
+      kind: "page", id: p.id ?? `sys-${p.key}`, name: p.title, ref: p.slug, description: p.description, seo: p.seo,
+      // untouched generated defaults have no row yet: they are edited from the Pages tab
+      editable: !!p.id, published: p.published,
+    })),
     ...videos.map((v): PageRow => ({ kind: "video", id: v.id, name: v.title, ref: videoRef(v), description: v.description ?? "", seo: parsePageSeo(v.seo) })),
   ];
 
   return (
     <>
       <Flash ok={sp.ok} error={sp.error} />
+      {readyCount > VIDEO_CAP && (
+        <p role="status" className="rounded-md bg-amber-50 p-3 text-sm text-amber-900">Showing the newest {VIDEO_CAP} of {readyCount} videos here. Older videos can still be edited from Videos → Edit → SEO.</p>
+      )}
 
       <Card title="SEO health">
         <div className="mb-3 flex items-center gap-3">
@@ -64,7 +83,7 @@ export default async function SeoHub({ params, searchParams }: { params: Promise
           {custom ? " Your custom domain is the canonical address." : " On Premium, a custom domain becomes the canonical address."}</p>
       </Card>
 
-      <HomeSeo tenantId={a.tenant.id} origin={origin} siteName={a.tenant.name} homeTitle={seo.homeTitle ?? ""} homeDescription={seo.homeDescription ?? ""} noindex={features.noindex} />
+      <HomeSeo tenantId={a.tenant.id} slug={slug} origin={origin} siteName={a.tenant.name} homeTitle={seo.homeTitle ?? ""} homeDescription={seo.homeDescription ?? ""} noindex={features.noindex} canEdit={a.role === "OWNER" || a.role === "ADMIN"} />
 
       <PagesTable rows={rows} origin={origin} siteName={a.tenant.name} template={template} slug={slug} tenantId={a.tenant.id} />
 
